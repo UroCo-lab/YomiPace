@@ -44,7 +44,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,8 +71,8 @@ class MainActivity : ComponentActivity() {
             val dark = isSystemInDarkTheme()
             val scheme = if (dark) darkColorScheme(primary = Color(0xFF91C6FA), error = Color(0xFFFF969F)) else lightColorScheme(primary = Color(0xFF1764A6), error = Color(0xFFC52E40), background = Color(0xFFF7F8FA), surface = Color.White)
             MaterialTheme(colorScheme = scheme) {
-                DisposableEffect(model.running) {
-                    if (model.running) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                DisposableEffect(model.running, model.keepScreenOnWhileRunning) {
+                    if (model.running && model.keepScreenOnWhileRunning) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
                 }
                 YomiPaceScreen(model, dark, foldMainScreen)
@@ -208,7 +207,7 @@ private fun ReaderColumn(vm: AppViewModel, dark: Boolean, modifier: Modifier, sh
             } else {
                 AndroidView(factory = { context -> ScriptReaderView(context).also { it.onAnchorChanged = vm::updateAnchor } }, modifier = Modifier.fillMaxSize().clipToBounds(), update = {
                     it.onAnchorChanged = vm::updateAnchor
-                    it.bind(vm.deck?.script, vm.timeline, vm.fontSize, vm.elapsed, vm.anchor, dark, vm.scrollInertia)
+                    it.bind(vm.deck?.script, vm.timeline, vm.fontSize, vm.elapsed, vm.anchor, dark, vm.scrollInertia, vm.readerScrollbar)
                 })
             }
         }
@@ -221,28 +220,10 @@ private fun ClockPanel(vm: AppViewModel) {
     val total = vm.totalSeconds
     val overtime = total != null && vm.elapsed > total
     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
-        val totalText = total?.let(::formatTime) ?: "—:—"
-        val elapsedText = formatTime(vm.elapsed)
-        val measurer = rememberTextMeasurer()
-        val density = LocalDensity.current
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val totalWidth = with(density) { measurer.measure(AnnotatedString(totalText), TextStyle(fontSize = vm.totalFontSize.sp, fontWeight = FontWeight.Medium)).size.width.toDp() }
-            val elapsedWidth = with(density) { measurer.measure(AnnotatedString(elapsedText), TextStyle(fontSize = vm.elapsedFontSize.sp, fontWeight = FontWeight.Medium)).size.width.toDp() }
-            if (maxOf(totalWidth, elapsedWidth) * 2 + 10.dp <= maxWidth) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Column(Modifier.weight(1f)) { Text("持ち時間", fontSize = 11.sp); ClockText(totalText, false, vm.totalFontSize) }
-                    Column(Modifier.weight(1f)) { Text("経過時間", fontSize = 11.sp); ClockText(elapsedText, overtime, vm.elapsedFontSize) }
-                }
-            } else {
-                Column(Modifier.fillMaxWidth()) {
-                    ClockRow("持ち時間", totalText, false, vm.totalFontSize)
-                    ClockRow("経過時間", elapsedText, overtime, vm.elapsedFontSize)
-                }
-            }
-        }
+        ClockTimes(vm)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(if (vm.deck == null) "スライド — / —" else "スライド ${vm.currentSlide} / ${vm.deck!!.images.size}", fontSize = 11.sp)
-            Text(if (total == null) "時間未設定" else if (overtime) "超過 +${formatTime(vm.elapsed - total)}" else "残り ${formatTime(total - vm.elapsed)}", fontSize = 11.sp, color = if (overtime) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+            if (total == null || overtime) Text(if (total == null) "時間未設定" else "超過 +${formatTime(vm.elapsed - total)}", fontSize = 11.sp, color = if (overtime) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.height(3.dp))
         LinearProgressIndicator(progress = { if (total == null) 0f else (vm.elapsed / total).coerceIn(0.0, 1.0).toFloat() }, modifier = Modifier.fillMaxWidth().height(3.dp), color = if (overtime) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
@@ -251,20 +232,50 @@ private fun ClockPanel(vm: AppViewModel) {
     }
 }
 
-@Composable private fun ClockRow(label: String, value: String, overtime: Boolean, size: Int) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 11.sp, modifier = Modifier.width(64.dp))
-        Box(Modifier.weight(1f)) { ClockText(value, overtime, size) }
-    }
-}
+private data class ClockItem(val label: String, val text: String, val size: Int, val color: Color, val tag: String)
 
-@Composable private fun ClockText(value: String, overtime: Boolean, requestedSize: Int) {
+@Composable private fun ClockTimes(vm: AppViewModel) {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val measured = measurer.measure(AnnotatedString(value), TextStyle(fontSize = requestedSize.sp, fontWeight = FontWeight.Medium)).size.width
-        val size = requestedSize * minOf(1f, (with(density) { maxWidth.toPx() } - 2f).coerceAtLeast(1f) / measured.coerceAtLeast(1))
-        Text(value, modifier = Modifier.fillMaxWidth(), fontSize = size.sp, lineHeight = (size * 1.15f).sp, letterSpacing = 0.sp, softWrap = false, fontWeight = FontWeight.Medium, maxLines = 1, color = if (overtime) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+    val remaining = vm.totalSeconds?.minus(vm.elapsed)
+    val overtime = remaining != null && remaining < 0
+    val normal = MaterialTheme.colorScheme.onSurface
+    val automatic = if (overtime) MaterialTheme.colorScheme.error else normal
+    fun chosen(saved: String?, fallback: Color) = saved?.let { Color(android.graphics.Color.parseColor(it)) } ?: fallback
+    val items = listOf(
+        ClockItem("持ち時間", vm.totalSeconds?.let(::formatTime) ?: "—:—", vm.totalFontSize, chosen(vm.totalClockColor, normal), "clock-total"),
+        ClockItem("経過時間", formatTime(vm.elapsed), vm.elapsedFontSize, chosen(vm.elapsedClockColor, automatic), "clock-elapsed"),
+        ClockItem("残り時間", remaining?.let { (if (it < 0) "−" else "") + formatTime(if (it > 0) kotlin.math.ceil(it) else it) } ?: "—:—", vm.remainingFontSize, chosen(vm.remainingClockColor, automatic), "clock-remaining")
+    )
+    val labelStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 0.sp)
+    val valueStyle = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium, letterSpacing = 0.sp)
+    BoxWithConstraints(Modifier.fillMaxWidth().testTag("clock-times")) {
+        if (maxWidth <= 0.dp) return@BoxWithConstraints
+        val gap = minOf(8.dp, maxWidth / 12)
+        fun measuredWidth(index: Int, size: Float, labels: Float): Float {
+            val labelWidth = measurer.measure(AnnotatedString(items[index].label), labelStyle.copy(fontSize = (11f * labels).sp)).size.width
+            val valueWidth = measurer.measure(AnnotatedString(items[index].text), valueStyle.copy(fontSize = size.sp)).size.width
+            return maxOf(labelWidth, valueWidth) + 2f
+        }
+        val fitting = remember(items.map { it.text to it.size }, maxWidth, density, labelStyle, valueStyle, measurer) {
+            val available = with(density) { maxWidth.toPx() - 2 * gap.roundToPx() - 3f }.coerceAtLeast(1f)
+            fitClockFonts(items.map { it.size.toFloat() }, available, ::measuredWidth)
+        }
+        val fittedLabels = labelStyle.copy(fontSize = (11f * fitting.labelScale).sp, lineHeight = (14f * fitting.labelScale).sp)
+        val styles = fitting.sizes.map { valueStyle.copy(fontSize = it.sp, lineHeight = (it * 1.15f).sp) }
+        Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                items.forEach { item -> Text(item.label, Modifier.weight(item.size.toFloat()).testTag("${item.tag}-label"),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = fittedLabels, maxLines = 1, softWrap = false) }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                items.forEachIndexed { index, item ->
+                    Text(item.text, Modifier.weight(item.size.toFloat()).alignByBaseline().testTag(item.tag),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        style = styles[index], color = item.color, maxLines = 1, softWrap = false)
+                }
+            }
+        }
     }
 }
 
@@ -455,12 +466,13 @@ timeは先頭に1回。省略時・不正時はメニューの「持ち時間」
 4. 赤線とグレー
 原稿を手動で上下にスクロールし、実際に読む箇所を赤線に合わせます。上下配置では、その#番号のスライドと次の2枚を表示します。2カラムでは、そのスライドを列の先頭に表示し、続きの画像を下へスクロールできます。スライド欄だけのスクロールでは原稿位置と時計は変わりません。原稿の自動スクロールはしません。
 グレーは予定上読み終えた文です。実際の読了検出ではありません。グレーの境界が赤線より下なら遅れ、赤線より上に通常色が残れば先行の目安です。下線は現在の予定文です。
-原稿左端の青いつまみが現在の表示範囲、黄色の点が各スライドの原稿開始位置です。左端のバーを動かして表示位置を変えることもできます。文字サイズや幅の変更で目印も再計算します。
+青いつまみが現在の表示範囲、黄色の点が各スライドの原稿開始位置です。メニュー「表示・操作設定」の「原稿スクロールバー」で右・左・なしを選べます（初期は左）。なしではつまみと黄色の点を隠し、原稿を直接スクロールできます。表示中のバーを動かして位置を変えることもできます。文字サイズや幅の変更で目印も再計算します。
 バーは固定の予定時刻で進みます。スクロールで開始しません。バー区間中も全体時計は進み、本文の予定位置は進みません。
 
 5. 表示と設定
 18ptボタンで8～72の文字サイズを入力。内部はspで端末の文字倍率を反映します。2sボタンで切替時間を入力（0秒・0.5秒等も可）。切替回数は枚数−1です。
-メニュー「表示・操作設定」で持ち時間／経過時間の文字サイズ、開始・停止の共通文字サイズと高さ、原稿スクロールの慣性を調整できます。時計と操作欄は文字に合わせて高さを取り、残りを原稿へ割り当てます。慣性0%では指を離すと停止、100%では長く流れます。直接ドラッグ中の速さは変えません。設定は次回起動にも保持します。
+持ち時間・経過時間・残り時間は横スクロールなしの横一列表示です。メニュー「表示・操作設定」で各文字サイズと色（自動・基本色・#RRGGBB）を設定できます。横幅全体を設定した文字サイズの比率で配分し、各領域の中央に表示します。領域に収まらない文字は自動縮小します。設定値は上限として保存し、広い画面では元のサイズに戻ります。超過時の残り時間はマイナスで表示します。設定は次回起動にも保持します。
+「計測中のスリープ禁止」は初期ONです。ONでは開始後の計測中に画面が自動消灯しないようにし、OFFまたは停止中は端末の設定に従います。開始・停止の共通文字サイズと高さ、原稿スクロールの慣性も調整できます。慣性0%では指を離すと停止、100%では長く流れます。直接ドラッグ中の速さは変えません。
 横向きなどで高さが足りない場合は、開始・停止と原稿欄を残し、時計欄を上下にスクロールできます。案内が表示されたら時計欄を動かして進捗やシークバーを表示してください。
 通常の縦画面は上下配置で、横幅に合わせたスライドの下に時計・操作ボタンを置き、残りの高さを原稿へ割り当てます。幅600dp以上の横画面は2カラムです。折りたたみのメイン画面を端末が通知した場合は、幅600dp以上なら縦向きでも2カラムを維持します。
 2カラムではスライドを列幅いっぱいの16:9枠で表示し、下へ続く画像をスクロールできます。画像自体の縦横比は保ち、全体を表示します。仕切り線の⇄で左右列を交換できます。開閉・回転・入替・文字サイズ変更は赤線の文字位置と時計を保持します。

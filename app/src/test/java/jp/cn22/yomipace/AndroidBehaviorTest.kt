@@ -253,4 +253,83 @@ class AndroidBehaviorTest {
         reader.onTouchEvent(MotionEvent.obtain(start, start + 100, MotionEvent.ACTION_UP, thumb.centerX(), thumb.top + 2f, 0))
         assertEquals(before, reader.logicalAnchorForTest())
     }
+
+    @Test fun scrollbarSidesAndHiddenModeKeepAnchorAndUseTheCorrectEdge() {
+        val script = ScriptParser.parse("#1\n" + "最初の原稿です。".repeat(20) + "\n#2\n" + "次の原稿です。".repeat(20))
+        val timeline = Timeline.build(script, 180.0, 2.0)
+        val anchor = ReadingAnchor("h2")
+        val reader = ScriptReaderView(app)
+        reader.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY))
+        reader.layout(0, 0, 320, 500)
+        for (dark in listOf(false, true)) for (side in ReaderScrollbarPosition.entries) {
+            reader.bind(script, timeline, 18, 22.0, anchor, dark, 0.0, side)
+            assertEquals(anchor, reader.logicalAnchorForTest())
+            val bitmap = Bitmap.createBitmap(320, 500, Bitmap.Config.ARGB_8888)
+            reader.draw(Canvas(bitmap))
+            val yellow = android.graphics.Color.rgb(255, 211, 55)
+            fun yellowCount(start: Int, end: Int): Int {
+                var count = 0
+                for (y in 0 until 500) for (x in start until end) if (bitmap.getPixel(x, y) == yellow) count++
+                return count
+            }
+            assertEquals(side == ReaderScrollbarPosition.LEFT, yellowCount(0, 22) > 0)
+            assertEquals(side == ReaderScrollbarPosition.RIGHT, yellowCount(298, 320) > 0)
+            bitmap.recycle()
+            if (side != ReaderScrollbarPosition.NONE) {
+                val thumb = org.robolectric.util.ReflectionHelpers.callInstanceMethod<android.graphics.RectF>(reader, "scrollbarThumb")
+                assertEquals(if (side == ReaderScrollbarPosition.RIGHT) 310f else 4f, thumb.left, .01f)
+                val down = android.os.SystemClock.uptimeMillis()
+                reader.onTouchEvent(MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, thumb.centerX(), thumb.top + 2, 0))
+                reader.onTouchEvent(MotionEvent.obtain(down, down + 80, MotionEvent.ACTION_UP, thumb.centerX(), thumb.top + 2, 0))
+                assertEquals("Grabbing $side must not jump", anchor, reader.logicalAnchorForTest())
+            } else {
+                for (x in listOf(7f, 313f)) {
+                    val down = android.os.SystemClock.uptimeMillis()
+                    reader.onTouchEvent(MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, x, 400f, 0))
+                    assertFalse(org.robolectric.util.ReflectionHelpers.getField<Boolean>(reader, "draggingRail"))
+                    reader.onTouchEvent(MotionEvent.obtain(down, down + 80, MotionEvent.ACTION_UP, x, 400f, 0))
+                    assertEquals(anchor, reader.logicalAnchorForTest())
+                }
+            }
+        }
+        reader.bind(script, timeline, 32, 22.0, anchor, false, 0.0, ReaderScrollbarPosition.NONE)
+        reader.layout(0, 0, 280, 600)
+        assertEquals(anchor, reader.logicalAnchorForTest())
+    }
+
+    @Test fun scrollbarChoicePersistsAndOldOrInvalidSettingsDefaultToLeft() {
+        assertEquals(ReaderScrollbarPosition.LEFT, ReaderScrollbarPosition.fromSaved(null))
+        assertEquals(ReaderScrollbarPosition.LEFT, ReaderScrollbarPosition.fromSaved("invalid"))
+        val vm = AppViewModel(app)
+        pumpUntil { !vm.importing }
+        assertEquals(ReaderScrollbarPosition.LEFT, vm.readerScrollbar)
+        for (side in ReaderScrollbarPosition.entries) {
+            vm.changeReaderScrollbar(side)
+            val restored = AppViewModel(app)
+            pumpUntil { !restored.importing }
+            assertEquals(side, restored.readerScrollbar)
+        }
+    }
+
+    @Test fun independentClockAppearanceAndSleepPreferenceSurviveRelaunch() {
+        val vm = AppViewModel(app)
+        pumpUntil { !vm.importing }
+        assertTrue(vm.keepScreenOnWhileRunning)
+        assertEquals(44, vm.remainingFontSize)
+        assertNull(vm.totalClockColor); assertNull(vm.elapsedClockColor); assertNull(vm.remainingClockColor)
+        vm.setTotalFont(12); vm.setElapsedFont(18); vm.setRemainingFont(30)
+        vm.changeTotalClockColor("#123abc"); vm.changeElapsedClockColor("C52E40"); vm.changeRemainingClockColor("#16804A")
+        vm.changeKeepScreenOn(false)
+        val restored = AppViewModel(app)
+        pumpUntil { !restored.importing }
+        assertEquals(12, restored.totalFontSize); assertEquals(18, restored.elapsedFontSize); assertEquals(30, restored.remainingFontSize)
+        assertEquals(2, restored.clockFontPriority)
+        assertEquals("#123ABC", restored.totalClockColor); assertEquals("#C52E40", restored.elapsedClockColor); assertEquals("#16804A", restored.remainingClockColor)
+        assertFalse(restored.keepScreenOnWhileRunning)
+        restored.changeTotalClockColor(null); restored.changeKeepScreenOn(true)
+        val automatic = AppViewModel(app)
+        pumpUntil { !automatic.importing }
+        assertNull(automatic.totalClockColor); assertTrue(automatic.keepScreenOnWhileRunning)
+        assertNull(normalizedClockColor("#XYZ123")); assertNull(normalizedClockColor("#1234"))
+    }
 }

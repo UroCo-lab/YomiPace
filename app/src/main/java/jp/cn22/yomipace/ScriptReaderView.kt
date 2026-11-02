@@ -28,6 +28,7 @@ class ScriptReaderView(context: Context) : View(context) {
     private var rows: List<Row> = emptyList()
     private var timeline: Timeline? = null
     private var font = 18
+    private var scrollbar = ReaderScrollbarPosition.LEFT
     private fun sp(value: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
     private var fontPixels = sp(18f)
     private val density get() = resources.displayMetrics.density
@@ -52,6 +53,8 @@ class ScriptReaderView(context: Context) : View(context) {
     var onAnchorChanged: ((ReadingAnchor, Int) -> Unit)? = null
     private val markerY get() = height / 3f
     private val maxScroll get() = max(0f, contentHeight - height)
+    private val textLeft get() = dp(if (scrollbar == ReaderScrollbarPosition.LEFT) 26f else 16f)
+    private val textRight get() = width - dp(if (scrollbar == ReaderScrollbarPosition.RIGHT) 26f else 16f)
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean { scroller.forceFinished(true); return true }
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
@@ -64,12 +67,14 @@ class ScriptReaderView(context: Context) : View(context) {
         }
     })
     init { isFocusable = true; importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES; contentDescription = "読み上げ原稿。上下にスクロールして赤線に実際の位置を合わせます。" }
-    fun bind(script: Script?, planned: Timeline?, size: Int, seconds: Double, position: ReadingAnchor, dark: Boolean, scrollInertia: Double = 0.5) {
+    fun bind(script: Script?, planned: Timeline?, size: Int, seconds: Double, position: ReadingAnchor, dark: Boolean, scrollInertia: Double = 0.5, scrollbarPosition: ReaderScrollbarPosition = ReaderScrollbarPosition.LEFT) {
         val newInertia = scrollInertia.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.5
         if (inertia != newInertia) scroller.forceFinished(true)
         inertia = newInertia
         scroller.setFriction((0.12 * (0.002 / 0.12).pow(inertia)).toFloat())
-        val changed = items !== script?.items && items != script?.items || size != font || fontPixels != sp(size.toFloat())
+        val changed = items !== script?.items && items != script?.items || size != font || fontPixels != sp(size.toFloat()) || scrollbar != scrollbarPosition
+        if (scrollbar != scrollbarPosition) draggingRail = false
+        scrollbar = scrollbarPosition
         if (dark) { colorInk = Color.rgb(237, 241, 245); colorMuted = Color.rgb(153, 164, 175); colorBackground = Color.rgb(32, 38, 45); colorTrack = Color.rgb(55, 66, 78) }
         else { colorInk = Color.rgb(23, 33, 43); colorMuted = Color.rgb(131, 141, 151); colorBackground = Color.WHITE; colorTrack = Color.rgb(229, 234, 240) }
         timeline = planned; elapsed = seconds
@@ -83,7 +88,7 @@ class ScriptReaderView(context: Context) : View(context) {
     }
     private fun reflow() {
         if (width <= 0 || height <= 0) return
-        val available = (width - dp(42f)).roundToInt().coerceAtLeast(1)
+        val available = (textRight - textLeft).roundToInt().coerceAtLeast(1)
         var top = markerY
         textPaint.textSize = fontPixels
         rows = items.map { item ->
@@ -135,7 +140,11 @@ class ScriptReaderView(context: Context) : View(context) {
         parent?.requestDisallowInterceptTouchEvent(true)
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             scroller.forceFinished(true)
-            draggingRail = event.x < dp(22f)
+            draggingRail = when (scrollbar) {
+                ReaderScrollbarPosition.LEFT -> event.x < dp(22f)
+                ReaderScrollbarPosition.RIGHT -> event.x >= width - dp(22f)
+                ReaderScrollbarPosition.NONE -> false
+            }
             if (draggingRail) {
                 val thumb = scrollbarThumb()
                 if (event.y >= thumb.top && event.y <= thumb.bottom) {
@@ -180,8 +189,8 @@ class ScriptReaderView(context: Context) : View(context) {
         super.onDraw(canvas)
         paint.color = colorBackground
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
-        val left = dp(26f)
-        val right = width - dp(16f)
+        val left = textLeft
+        val right = textRight
         rows.forEach { row ->
             val y = row.top - scrollYf
             if (y + row.height < 0 || y > height) return@forEach
@@ -231,25 +240,31 @@ class ScriptReaderView(context: Context) : View(context) {
         }
         if (items.isNotEmpty()) {
             paint.color = red; paint.strokeWidth = dp(2f)
-            canvas.drawLine(dp(24f), markerY, width - dp(6f), markerY, paint)
+            val markerLeft = dp(if (scrollbar == ReaderScrollbarPosition.LEFT) 24f else 6f)
+            val markerRight = width - dp(if (scrollbar == ReaderScrollbarPosition.RIGHT) 24f else 6f)
+            canvas.drawLine(markerLeft, markerY, markerRight, markerY, paint)
             paint.style = Paint.Style.FILL
-            canvas.drawCircle(dp(24f), markerY, dp(3f), paint)
+            canvas.drawCircle(markerLeft, markerY, dp(3f), paint)
         }
+        if (scrollbar == ReaderScrollbarPosition.NONE) return
         // Separate lanes keep the yellow slide starts visible beside the blue viewport thumb.
+        val thumb = scrollbarThumb()
         paint.color = colorTrack
-        canvas.drawRoundRect(dp(4f), dp(6f), dp(10f), height - dp(6f), dp(3f), dp(3f), paint)
+        canvas.drawRoundRect(thumb.left, dp(6f), thumb.right, height - dp(6f), dp(3f), dp(3f), paint)
         paint.color = blue
-        canvas.drawRoundRect(scrollbarThumb(), dp(3f), dp(3f), paint)
+        canvas.drawRoundRect(thumb, dp(3f), dp(3f), paint)
+        val dotX = if (scrollbar == ReaderScrollbarPosition.RIGHT) width - dp(16f) else dp(16f)
         slideMarkerPositions().forEach { y ->
-            paint.color = Color.rgb(123, 89, 0); canvas.drawCircle(dp(16f), y, dp(4f), paint)
-            paint.color = Color.rgb(255, 211, 55); canvas.drawCircle(dp(16f), y, dp(3f), paint)
+            paint.color = Color.rgb(123, 89, 0); canvas.drawCircle(dotX, y, dp(4f), paint)
+            paint.color = Color.rgb(255, 211, 55); canvas.drawCircle(dotX, y, dp(3f), paint)
         }
     }
     private fun scrollbarThumb(): RectF {
         val track = (height - dp(12f)).coerceAtLeast(1f)
         val thumbHeight = (track * height / contentHeight.coerceAtLeast(height.toFloat()).coerceAtLeast(1f)).coerceIn(minOf(dp(24f), track), track)
         val top = dp(6f) + if (maxScroll > 0) scrollYf / maxScroll * (track - thumbHeight) else 0f
-        return RectF(dp(4f), top, dp(10f), top + thumbHeight)
+        val left = if (scrollbar == ReaderScrollbarPosition.RIGHT) width - dp(10f) else dp(4f)
+        return RectF(left, top, left + dp(6f), top + thumbHeight)
     }
     private fun slideMarkerPositions(): List<Float> = rows.filter { it.item is ScriptItem.Heading }.map {
         dp(6f) + it.top / contentHeight.coerceAtLeast(1f) * (height - dp(12f)).coerceAtLeast(1f)

@@ -50,6 +50,7 @@ class ComposeScreenTest {
             vm.clear()
             vm.setFont(18); vm.setSwitch(2.0); if (vm.swapped) vm.swap()
             vm.setTotalFont(44); vm.setElapsedFont(44); vm.setControlFont(18); vm.changeControlHeight(52); vm.changeScrollInertia(.5)
+            vm.setRemainingFont(44); vm.changeTotalClockColor(null); vm.changeElapsedClockColor(null); vm.changeRemainingClockColor(null); vm.changeKeepScreenOn(true)
             val sample = File(rule.activity.cacheDir, "YomiPace_Sample_001.zip")
             javaClass.getResourceAsStream("/sample.zip")!!.use { input -> sample.outputStream().use { input.copyTo(it) } }
             vm.importZip(Uri.fromFile(sample))
@@ -125,7 +126,7 @@ class ComposeScreenTest {
     }
     @Test fun compactScreenMenuAndSettings() {
         val vm = loadSample()
-        rule.onNodeWithText("7:00").assertIsDisplayed()
+        rule.onNodeWithTag("clock-total").assertIsDisplayed().assertTextEquals("7:00")
         assertControlsAndReader()
         rule.onNodeWithText("開始").assertIsEnabled().performClick()
         rule.runOnIdle { assertTrue(vm.running) }
@@ -293,8 +294,8 @@ class ComposeScreenTest {
         val vm = loadSample()
         rule.onNodeWithText("⋮").performClick()
         rule.onNodeWithText("表示・操作設定").performClick()
-        rule.onNodeWithContentDescription("持ち時間の文字サイズ").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(60f) }
-        rule.onNodeWithContentDescription("経過時間の文字サイズ").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(64f) }
+        rule.onNodeWithContentDescription("持ち時間の文字サイズ").performScrollTo().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(60f) }
+        rule.onNodeWithContentDescription("経過時間の文字サイズ").performScrollTo().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(64f) }
         rule.onNodeWithContentDescription("開始・停止の文字サイズ").performScrollTo().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(28f) }
         rule.onNodeWithContentDescription("開始・停止のボタンの高さ").performScrollTo().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(88f) }
         rule.onNodeWithContentDescription("スクロールの慣性").performScrollTo().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
@@ -344,10 +345,12 @@ class ComposeScreenTest {
         val stop = rule.onNodeWithText("停止").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         assertTrue(bounds.right <= stop.left)
         screenshot(name)
-        for (label in listOf("開始", "停止", formatTime(vm.totalSeconds!!), formatTime(vm.elapsed))) {
+        val textTargets = listOf(rule.onNodeWithText("開始"), rule.onNodeWithText("停止")) +
+            listOf("clock-total", "clock-elapsed", "clock-remaining").map { rule.onNodeWithTag(it) }
+        for (target in textTargets) {
             val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
-            rule.onNodeWithText(label).performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            assertFalse("Text clipped: $label ${layouts.single().size}, width=${layouts.single().didOverflowWidth}, height=${layouts.single().didOverflowHeight}, paragraph=${layouts.single().multiParagraph.width}", layouts.single().hasVisualOverflow)
+            target.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertFalse("Text clipped: ${layouts.single().layoutInput.text} ${layouts.single().size}", layouts.single().hasVisualOverflow)
         }
         assertTrue(rule.onNodeWithTag("script-viewport").fetchSemanticsNode().boundsInRoot.height >= 100f)
         if (fold) {
@@ -396,5 +399,196 @@ class ComposeScreenTest {
         waitForImages()
         rule.onNodeWithContentDescription("現在のスライド 3").assertIsDisplayed()
         rule.runOnIdle { assertEquals("h3", vm.anchor.itemId); assertEquals(0.0, vm.elapsed, .001); assertFalse(vm.running) }
+    }
+
+    @Test @Config(qualifiers = "w720dp-h840dp-port-mdpi") fun scrollbarSettingWorksAcrossFoldSwapAndReaderFontChanges() {
+        val vm = loadSample()
+        val anchor = jp.cn22.yomipace.core.ReadingAnchor("h2")
+        rule.runOnIdle { vm.updateAnchor(anchor, 2); vm.seekTo(45.0); vm.play() }
+        fun choose(label: String, side: ReaderScrollbarPosition) {
+            rule.onNodeWithText("⋮").performClick()
+            rule.onNodeWithText("表示・操作設定").performClick()
+            rule.onNodeWithText("原稿スクロールバー").assertIsDisplayed()
+            rule.onNodeWithText(label).performClick()
+            rule.onNodeWithText(label).assertIsSelected()
+            rule.onNodeWithText("閉じる").performClick()
+            rule.runOnIdle { assertEquals(side, vm.readerScrollbar); assertEquals(anchor, vm.anchor); assertTrue(vm.running) }
+        }
+        choose("右", ReaderScrollbarPosition.RIGHT)
+        rule.runOnIdle { vm.pause() }
+        val elapsed = vm.elapsed
+        screenshot("scrollbar-right-stacked")
+        rule.runOnIdle { vm.play() }
+        foldInfo.overrideWindowLayoutInfo(TestWindowLayoutInfo(listOf(TestFoldingFeature(rule.activity, state = FoldingFeature.State.FLAT, orientation = FoldingFeature.Orientation.VERTICAL))))
+        rule.onNodeWithText("⇄").performClick()
+        rule.runOnIdle { vm.setFont(32) }
+        choose("なし", ReaderScrollbarPosition.NONE)
+        rule.runOnIdle { vm.pause() }
+        screenshot("scrollbar-hidden-fold-swapped")
+        rule.runOnIdle { vm.play() }
+        choose("左", ReaderScrollbarPosition.LEFT)
+        rule.runOnIdle { assertTrue(vm.elapsed >= elapsed); vm.pause() }
+        screenshot("scrollbar-left-fold-swapped")
+        foldInfo.overrideWindowLayoutInfo(TestWindowLayoutInfo(emptyList()))
+        rule.onNodeWithTag("stacked-layout").assertIsDisplayed()
+        rule.runOnIdle { assertEquals(ReaderScrollbarPosition.LEFT, vm.readerScrollbar); assertEquals(anchor, vm.anchor) }
+    }
+
+    @Test fun threeClockFieldsFillTheRowInSavedFontRatiosWithoutScrolling() {
+        val vm = loadSample()
+        rule.runOnIdle {
+            vm.seekTo(65.0)
+            vm.setTotalFont(24); vm.setElapsedFont(32); vm.setRemainingFont(40)
+            vm.changeTotalClockColor("#123ABC"); vm.changeElapsedClockColor("#C52E40"); vm.changeRemainingClockColor("#16804A")
+        }
+        val tags = listOf("clock-total", "clock-elapsed", "clock-remaining")
+        fun layout(tag: String): androidx.compose.ui.text.TextLayoutResult {
+            val results = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+            rule.onNodeWithTag(tag).performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(results) }
+            return results.single()
+        }
+        rule.onNodeWithTag("clock-total").assertTextEquals("7:00").assertIsDisplayed()
+        rule.onNodeWithTag("clock-elapsed").assertTextEquals("1:05").assertIsDisplayed()
+        rule.onNodeWithTag("clock-remaining").assertTextEquals("5:55").assertIsDisplayed()
+        rule.runOnIdle { vm.seekTo(65.25) }
+        rule.onNodeWithTag("clock-elapsed").assertTextEquals("1:05")
+        rule.onNodeWithTag("clock-remaining").assertTextEquals("5:55")
+        val before = tags.map(::layout)
+        assertTrue(before.zipWithNext().all { (a, b) -> a.size.width < b.size.width })
+        val expectedColors = listOf("#123ABC", "#C52E40", "#16804A")
+        val baselines = tags.mapIndexed { index, tag ->
+            assertFalse(before[index].hasVisualOverflow)
+            assertEquals(androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(expectedColors[index])), before[index].layoutInput.style.color)
+            rule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.top + before[index].firstBaseline
+        }
+        assertTrue("Clocks must share a horizontal baseline: $baselines", baselines.max() - baselines.min() <= 1f)
+        screenshot("clock-three-fields-custom")
+        rule.runOnIdle { vm.setTotalFont(72) }
+        assertTrue(layout("clock-total").size.width > before[0].size.width)
+        assertTrue(layout("clock-elapsed").size.width < before[1].size.width)
+        assertTrue(layout("clock-remaining").size.width < before[2].size.width)
+        rule.runOnIdle { vm.setElapsedFont(72); vm.setRemainingFont(72) }
+        rule.onNodeWithText("時計欄を左右にスクロール").assertDoesNotExist()
+        assertFalse(rule.onNodeWithTag("clock-times").fetchSemanticsNode().config.contains(androidx.compose.ui.semantics.SemanticsProperties.HorizontalScrollAxisRange))
+        val viewport = rule.onNodeWithTag("clock-times").fetchSemanticsNode().boundsInRoot
+        val boxes = tags.map { rule.onNodeWithTag(it).assertIsDisplayed().fetchSemanticsNode().boundsInRoot }
+        assertEquals(viewport.left, boxes.first().left, 1f)
+        assertEquals(viewport.right, boxes.last().right, 1f)
+        assertTrue(boxes.zipWithNext().all { (a, b) -> a.right <= b.left })
+        assertTrue(layout("clock-remaining").layoutInput.style.fontSize.value <= 72f)
+        assertTrue(layout("clock-total").layoutInput.style.fontSize.value < 72f)
+        assertTrue(layout("clock-elapsed").layoutInput.style.fontSize.value < 72f)
+        tags.forEach { tag ->
+            assertFalse(layout(tag).hasVisualOverflow)
+        }
+        screenshot("clock-priority-remaining")
+        rule.runOnIdle { vm.setTotalFont(72) }
+        assertTrue(layout("clock-total").layoutInput.style.fontSize.value <= 72f)
+        assertTrue(layout("clock-elapsed").layoutInput.style.fontSize.value < 72f)
+        assertTrue(layout("clock-remaining").layoutInput.style.fontSize.value < 72f)
+        screenshot("clock-priority-total")
+        rule.runOnIdle { vm.setElapsedFont(72) }
+        assertTrue(layout("clock-elapsed").layoutInput.style.fontSize.value <= 72f)
+        assertTrue(layout("clock-total").layoutInput.style.fontSize.value < 72f)
+        assertTrue(layout("clock-remaining").layoutInput.style.fontSize.value < 72f)
+        screenshot("clock-priority-elapsed")
+        rule.runOnIdle { vm.seekTo(421.0) }
+        rule.onNodeWithTag("clock-remaining").assertTextEquals("−0:01")
+        assertEquals(androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor("#16804A")), layout("clock-remaining").layoutInput.style.color)
+        rule.runOnIdle { vm.seekTo(60.0) }
+        rule.onNodeWithTag("clock-remaining").assertTextEquals("6:00")
+        rule.runOnIdle { vm.setTotalFont(12); vm.setElapsedFont(18); vm.setRemainingFont(30) }
+        val ratios = listOf(2f, 3f, 5f)
+        val proportional = tags.map { rule.onNodeWithTag(it).fetchSemanticsNode().boundsInRoot }
+        val unit = proportional.sumOf { it.width.toDouble() }.toFloat() / ratios.sum()
+        tags.forEachIndexed { index, tag ->
+            val box = proportional[index]
+            val heading = rule.onNodeWithTag("$tag-label").fetchSemanticsNode().boundsInRoot
+            assertEquals(unit * ratios[index], box.width, 1f)
+            assertEquals(box.center.x, heading.center.x, 1f)
+            assertEquals(androidx.compose.ui.text.style.TextAlign.Center, layout(tag).layoutInput.style.textAlign)
+            assertEquals(listOf(12f, 18f, 30f)[index], layout(tag).layoutInput.style.fontSize.value, .01f)
+            assertFalse(layout(tag).hasVisualOverflow)
+        }
+        assertEquals(viewport.left, proportional.first().left, 1f)
+        assertEquals(viewport.right, proportional.last().right, 1f)
+        screenshot("clock-ratio-2-3-5")
+    }
+
+    @Test @Config(qualifiers = "w720dp-h840dp-port-mdpi") fun proportionalClocksSurviveFoldSwapAndWidthChanges() {
+        val vm = loadSample()
+        rule.runOnIdle { vm.setTotalFont(12); vm.setElapsedFont(18); vm.setRemainingFont(30); vm.seekTo(65.0) }
+        fun check() {
+            val weights = listOf(12f, 18f, 30f)
+            val tags = listOf("clock-total", "clock-elapsed", "clock-remaining")
+            val boxes = tags.map { rule.onNodeWithTag(it).assertIsDisplayed().fetchSemanticsNode().boundsInRoot }
+            val viewport = rule.onNodeWithTag("clock-times").fetchSemanticsNode().boundsInRoot
+            val width = boxes.sumOf { it.width.toDouble() }.toFloat()
+            assertEquals(viewport.left, boxes.first().left, 1f)
+            assertEquals(viewport.right, boxes.last().right, 1f)
+            assertTrue(boxes.zipWithNext().all { (a, b) -> a.right <= b.left })
+            tags.forEachIndexed { index, tag ->
+                assertEquals(width * weights[index] / weights.sum(), boxes[index].width, 1f)
+                val results = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+                rule.onNodeWithTag(tag).performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(results) }
+                assertFalse(results.single().hasVisualOverflow)
+            }
+            rule.runOnIdle { assertEquals(65.0, vm.elapsed, .001); assertEquals(12, vm.totalFontSize); assertEquals(18, vm.elapsedFontSize); assertEquals(30, vm.remainingFontSize) }
+        }
+        check()
+        foldInfo.overrideWindowLayoutInfo(TestWindowLayoutInfo(listOf(TestFoldingFeature(rule.activity, state = FoldingFeature.State.FLAT, orientation = FoldingFeature.Orientation.VERTICAL))))
+        rule.onNodeWithTag("two-column-layout").assertIsDisplayed()
+        check()
+        waitForImages()
+        rule.onNodeWithText("⇄").performClick()
+        check()
+        screenshot("clock-ratio-fold-swapped")
+        foldInfo.overrideWindowLayoutInfo(TestWindowLayoutInfo(emptyList()))
+        org.robolectric.RuntimeEnvironment.setQualifiers("w320dp-h800dp-port-mdpi")
+        rule.activityRule.scenario.recreate()
+        check()
+        screenshot("clock-ratio-cover-320")
+    }
+
+    @Test fun clockColorPickersAndSleepSwitchApplyWhileRunning() {
+        val vm = loadSample()
+        fun screenHeld() = (rule.activity.window.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) != 0
+        rule.runOnIdle { assertTrue(vm.keepScreenOnWhileRunning); assertFalse(screenHeld()) }
+        rule.onNodeWithText("開始").performClick()
+        rule.runOnIdle { assertTrue(screenHeld()) }
+        rule.onNodeWithText("⋮").performClick()
+        rule.onNodeWithText("表示・操作設定").performClick()
+        rule.onNodeWithContentDescription("計測中のスリープ禁止").assertIsOn().performClick().assertIsOff()
+        rule.runOnIdle { assertTrue(vm.running); assertFalse(screenHeld()) }
+        rule.onNodeWithContentDescription("持ち時間の色").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.runOnUiThread { ShadowAlertDialog.getLatestAlertDialog().window!!.decorView.findViewWithTag<android.widget.Button>("clock-color-赤").performClick() }
+        rule.onNodeWithContentDescription("経過時間の色").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.runOnUiThread {
+            val picker = ShadowAlertDialog.getLatestAlertDialog()
+            val input = picker.findViewById<EditText>(android.R.id.edit)
+            input.setText("#XXYYZZ"); picker.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+            assertEquals("#と6桁の16進数で指定してください。", input.error.toString())
+            input.setText("#123ABC"); picker.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        }
+        rule.onNodeWithContentDescription("残り時間の色").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.runOnUiThread { ShadowAlertDialog.getLatestAlertDialog().window!!.decorView.findViewWithTag<android.widget.Button>("clock-color-緑").performClick() }
+        rule.onNodeWithContentDescription("残り時間の文字サイズ").performScrollTo().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(56f) }
+        rule.onNodeWithText("閉じる").performClick()
+        rule.runOnIdle {
+            assertTrue(vm.running); assertFalse(vm.keepScreenOnWhileRunning); assertFalse(screenHeld())
+            assertEquals("#C52E40", vm.totalClockColor); assertEquals("#123ABC", vm.elapsedClockColor)
+            assertEquals("#16804A", vm.remainingClockColor); assertEquals(56, vm.remainingFontSize)
+            vm.changeKeepScreenOn(true)
+        }
+        rule.runOnIdle { assertTrue(screenHeld()); vm.seekTo(80.0) }
+        rule.runOnIdle { assertFalse(screenHeld()); assertFalse(vm.running) }
+        screenshot("clock-colors-and-sleep-setting")
+        rule.onNodeWithText("開始").performClick()
+        rule.runOnIdle { assertTrue(screenHeld()) }
+        rule.onNodeWithText("停止").performClick()
+        rule.runOnIdle { assertFalse(screenHeld()) }
     }
 }

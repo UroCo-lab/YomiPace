@@ -33,8 +33,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var totalSeconds by mutableStateOf<Double?>(null); private set
     var switchSeconds by mutableDoubleStateOf(prefs.getString("switchSeconds", null)?.toDoubleOrNull() ?: 2.0); private set
     var fontSize by mutableIntStateOf(prefs.getInt("font", 18)); private set
-    var totalFontSize by mutableIntStateOf(prefs.getInt("totalFontSize", 44).coerceIn(24, 72)); private set
-    var elapsedFontSize by mutableIntStateOf(prefs.getInt("elapsedFontSize", 44).coerceIn(24, 72)); private set
+    var readerScrollbar by mutableStateOf(ReaderScrollbarPosition.fromSaved(prefs.getString("readerScrollbar", null))); private set
+    var totalFontSize by mutableIntStateOf(prefs.getInt("totalFontSize", 44).coerceIn(12, 72)); private set
+    var elapsedFontSize by mutableIntStateOf(prefs.getInt("elapsedFontSize", 44).coerceIn(12, 72)); private set
+    var remainingFontSize by mutableIntStateOf(prefs.getInt("remainingFontSize", 44).coerceIn(12, 72)); private set
+    var clockFontPriority by mutableIntStateOf(prefs.getInt("clockFontPriority",
+        listOf(totalFontSize, elapsedFontSize, remainingFontSize).let { sizes -> sizes.indices.maxBy { sizes[it] } }).coerceIn(0, 2)); private set
+    var totalClockColor by mutableStateOf(normalizedClockColor(prefs.getString("totalClockColor", null))); private set
+    var elapsedClockColor by mutableStateOf(normalizedClockColor(prefs.getString("elapsedClockColor", null))); private set
+    var remainingClockColor by mutableStateOf(normalizedClockColor(prefs.getString("remainingClockColor", null))); private set
+    var keepScreenOnWhileRunning by mutableStateOf(prefs.getBoolean("keepScreenOnWhileRunning", true)); private set
     var controlFontSize by mutableIntStateOf(prefs.getInt("controlFontSize", 18).coerceIn(12, 36)); private set
     var controlHeight by mutableIntStateOf(prefs.getInt("controlHeight", 52).coerceIn(48, 112)); private set
     var scrollInertia by mutableDoubleStateOf(prefs.getString("scrollInertia", null)?.toDoubleOrNull()?.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.5); private set
@@ -124,8 +132,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         persist()
     }
     fun setFont(value: Int) { require(value in 8..72); fontSize = value; persist() }
-    fun setTotalFont(value: Int) { totalFontSize = value.coerceIn(24, 72); persist() }
-    fun setElapsedFont(value: Int) { elapsedFontSize = value.coerceIn(24, 72); persist() }
+    fun changeReaderScrollbar(value: ReaderScrollbarPosition) { readerScrollbar = value; persist() }
+    fun setTotalFont(value: Int) { totalFontSize = value.coerceIn(12, 72); clockFontPriority = 0; persist() }
+    fun setElapsedFont(value: Int) { elapsedFontSize = value.coerceIn(12, 72); clockFontPriority = 1; persist() }
+    fun setRemainingFont(value: Int) { remainingFontSize = value.coerceIn(12, 72); clockFontPriority = 2; persist() }
+    fun changeTotalClockColor(value: String?) { totalClockColor = normalizedClockColor(value); persist() }
+    fun changeElapsedClockColor(value: String?) { elapsedClockColor = normalizedClockColor(value); persist() }
+    fun changeRemainingClockColor(value: String?) { remainingClockColor = normalizedClockColor(value); persist() }
+    fun changeKeepScreenOn(value: Boolean) { keepScreenOnWhileRunning = value; persist() }
     fun setControlFont(value: Int) { controlFontSize = value.coerceIn(12, 36); persist() }
     fun changeControlHeight(value: Int) { controlHeight = value.coerceIn(48, 112); persist() }
     fun changeScrollInertia(value: Double) { if (value.isFinite()) { scrollInertia = value.coerceIn(0.0, 1.0); persist() } }
@@ -152,7 +166,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun persist() {
         prefs.edit().putInt("font", fontSize).putString("switchSeconds", switchSeconds.toString()).putBoolean("swapped", swapped)
+            .putString("readerScrollbar", readerScrollbar.name)
             .putInt("totalFontSize", totalFontSize).putInt("elapsedFontSize", elapsedFontSize)
+            .putInt("remainingFontSize", remainingFontSize).putString("totalClockColor", totalClockColor)
+            .putInt("clockFontPriority", clockFontPriority)
+            .putString("elapsedClockColor", elapsedClockColor).putString("remainingClockColor", remainingClockColor)
+            .putBoolean("keepScreenOnWhileRunning", keepScreenOnWhileRunning)
             .putInt("controlFontSize", controlFontSize).putInt("controlHeight", controlHeight).putString("scrollInertia", scrollInertia.toString())
             .putBoolean("vibrationEnabled", vibrationEnabled).putInt("vibrationStrength", vibrationStrength)
             .putString("active", deck?.directory?.name).putString("name", deck?.name).putString("total", totalSeconds?.toString())
