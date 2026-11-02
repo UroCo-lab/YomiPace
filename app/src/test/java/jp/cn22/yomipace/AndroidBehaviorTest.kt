@@ -207,7 +207,7 @@ class AndroidBehaviorTest {
         assertEquals(3, initial.size); assertTrue(initial.zipWithNext().all { (a, b) -> b > a })
         val bitmap = Bitmap.createBitmap(320, 500, Bitmap.Config.ARGB_8888)
         reader.draw(Canvas(bitmap))
-        initial.forEach { assertEquals(android.graphics.Color.rgb(255, 211, 55), bitmap.getPixel(16, it.toInt())) }
+        initial.forEach { assertEquals(android.graphics.Color.rgb(255, 211, 55), bitmap.getPixel(7, it.toInt())) }
         bitmap.recycle()
         reader.bind(script, timeline, 32, 0.0, ReadingAnchor("h2"), false)
         reader.layout(0, 0, 280, 500)

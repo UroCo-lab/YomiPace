@@ -63,7 +63,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val editorName get() = editorOriginal?.entry?.name.orEmpty()
     val editorDirty get() = editorDraft != null && editorDraft != editorOriginal?.source
     val busy get() = importing || libraryBusy || editorBusy
-    var vibrationEnabled by mutableStateOf(prefs.getBoolean("vibrationEnabled", false)); private set
+    var vibrationEnabled by mutableStateOf(prefs.getBoolean("vibrationEnabled", true)); private set
     var vibrationStrength by mutableIntStateOf(prefs.getInt("vibrationStrength", 1).coerceIn(0, 2)); private set
     var anchor by mutableStateOf(ReadingAnchor()); private set
     private var budgetProblem by mutableStateOf<String?>("メニューの「ZIPを開く」で資料を選択してください。")

@@ -247,16 +247,16 @@ class ScriptReaderView(context: Context) : View(context) {
             canvas.drawCircle(markerLeft, markerY, dp(3f), paint)
         }
         if (scrollbar == ReaderScrollbarPosition.NONE) return
-        // Separate lanes keep the yellow slide starts visible beside the blue viewport thumb.
+        // Draw slide starts over the thumb, entirely inside the same scrollbar track.
         val thumb = scrollbarThumb()
         paint.color = colorTrack
         canvas.drawRoundRect(thumb.left, dp(6f), thumb.right, height - dp(6f), dp(3f), dp(3f), paint)
         paint.color = blue
         canvas.drawRoundRect(thumb, dp(3f), dp(3f), paint)
-        val dotX = if (scrollbar == ReaderScrollbarPosition.RIGHT) width - dp(16f) else dp(16f)
+        val dotX = thumb.centerX()
         slideMarkerPositions().forEach { y ->
-            paint.color = Color.rgb(123, 89, 0); canvas.drawCircle(dotX, y, dp(4f), paint)
-            paint.color = Color.rgb(255, 211, 55); canvas.drawCircle(dotX, y, dp(3f), paint)
+            paint.color = Color.rgb(123, 89, 0); canvas.drawCircle(dotX, y, dp(2.5f), paint)
+            paint.color = Color.rgb(255, 211, 55); canvas.drawCircle(dotX, y, dp(2f), paint)
         }
     }
     private fun scrollbarThumb(): RectF {
@@ -267,7 +267,8 @@ class ScriptReaderView(context: Context) : View(context) {
         return RectF(left, top, left + dp(6f), top + thumbHeight)
     }
     private fun slideMarkerPositions(): List<Float> = rows.filter { it.item is ScriptItem.Heading }.map {
-        dp(6f) + it.top / contentHeight.coerceAtLeast(1f) * (height - dp(12f)).coerceAtLeast(1f)
+        (dp(6f) + it.top / contentHeight.coerceAtLeast(1f) * (height - dp(12f)).coerceAtLeast(1f))
+            .coerceIn(dp(9f), (height - dp(9f)).coerceAtLeast(dp(9f)))
     }
     fun logicalAnchorForTest() = anchor
 }
