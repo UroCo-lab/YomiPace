@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.os.SystemClock
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -46,6 +47,12 @@ class ScriptReaderView(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val blockRect = RectF()
     private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val effectsRenderer by lazy { DopamineRenderer() }
+    private var effectEngine: DopamineEngine? = null
+    private var effectTime: () -> Long = SystemClock::elapsedRealtime
+    internal fun bindDopamine(engine: DopamineEngine?, time: () -> Long = SystemClock::elapsedRealtime) {
+        effectEngine = engine; effectTime = time; invalidate()
+    }
     private val scroller = OverScroller(context)
     private var inertia = 0.5
     private var draggingRail = false
@@ -189,6 +196,16 @@ class ScriptReaderView(context: Context) : View(context) {
         super.onDraw(canvas)
         paint.color = colorBackground
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+        val effects = effectEngine?.takeIf { it.enabled && it.available }
+        val chaos = effects != null
+        val ink = if (chaos) Color.rgb(250, 253, 255) else colorInk
+        val muted = if (chaos) Color.rgb(172, 181, 202) else colorMuted
+        val accent = if (chaos) Color.rgb(92, 225, 255) else blue
+        val track = if (chaos) Color.rgb(24, 22, 49) else colorTrack
+        if (effects != null) {
+            effectsRenderer.drawReaderBackground(canvas, width.toFloat(), height.toFloat(), density, effectTime(), effects)
+            if (effects.running || effects.bursts.isNotEmpty()) postInvalidateDelayed(33)
+        }
         val left = textLeft
         val right = textRight
         rows.forEach { row ->
@@ -198,11 +215,26 @@ class ScriptReaderView(context: Context) : View(context) {
             when (item) {
                 is ScriptItem.Sentence -> {
                     val segment = timeline?.byId?.get(item.id)
-                    textPaint.color = if (segment != null && elapsed >= segment.end && elapsed > 0) colorMuted else colorInk
+                    val textColor = if (segment != null && elapsed >= segment.end && elapsed > 0) muted else ink
+                    textPaint.color = textColor
                     textPaint.textSize = fontPixels
-                    canvas.save(); canvas.translate(left, y); row.layout!!.draw(canvas)
+                    canvas.save(); canvas.translate(left, y)
+                    val layout = row.layout!!
+                    if (chaos) {
+                        // Per-line backplates and opaque outlined glyphs sit above every background effect.
+                        paint.style = Paint.Style.FILL; paint.color = Color.argb(210, 5, 2, 15)
+                        for (line in 0 until layout.lineCount) {
+                            val baseline = layout.getLineBaseline(line).toFloat()
+                            canvas.drawRoundRect(layout.getLineLeft(line) - dp(3f), baseline + textPaint.ascent() - dp(2f),
+                                layout.getLineRight(line) + dp(3f), baseline + textPaint.descent() + dp(2f), dp(3f), dp(3f), paint)
+                        }
+                        textPaint.style = Paint.Style.STROKE; textPaint.strokeWidth = dp(2.5f); textPaint.color = Color.rgb(5, 2, 15)
+                        layout.draw(canvas)
+                        textPaint.style = Paint.Style.FILL; textPaint.color = textColor
+                    }
+                    layout.draw(canvas)
                     if (segment != null && elapsed >= segment.start && elapsed < segment.end) {
-                        paint.color = blue; paint.strokeWidth = dp(1f)
+                        paint.color = accent; paint.strokeWidth = dp(1f)
                         for (line in 0 until row.layout.lineCount) {
                             val bottom = row.layout.getLineBaseline(line) + dp(4f)
                             canvas.drawLine(row.layout.getLineLeft(line), bottom, row.layout.getLineRight(line), bottom, paint)
@@ -211,30 +243,41 @@ class ScriptReaderView(context: Context) : View(context) {
                     canvas.restore()
                 }
                 is ScriptItem.Heading -> {
-                    paint.color = blue; paint.textSize = sp(12f); paint.isFakeBoldText = false
+                    paint.color = accent; paint.textSize = sp(12f); paint.isFakeBoldText = false
+                    if (chaos) {
+                        paint.color = Color.rgb(5, 2, 15); paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(3f)
+                        canvas.drawText("#${item.slide}", left, y + dp(20f), paint)
+                        paint.style = Paint.Style.FILL; paint.color = accent
+                    }
                     canvas.drawText("#${item.slide}", left, y + dp(20f), paint)
                     if (item.slide > 1) {
                         val segment = timeline?.byId?.get("switch${item.slide}")
                         val f = segment?.fraction(elapsed)?.toFloat() ?: 0f
-                        paint.color = colorTrack; canvas.drawRect(left, y + dp(28f), right, y + dp(31f), paint)
-                        paint.color = blue; canvas.drawRect(left, y + dp(28f), left + (right - left) * f, y + dp(31f), paint)
+                        paint.color = track; canvas.drawRect(left, y + dp(28f), right, y + dp(31f), paint)
+                        paint.color = accent; canvas.drawRect(left, y + dp(28f), left + (right - left) * f, y + dp(31f), paint)
                     }
                 }
                 is ScriptItem.Fixed -> {
                     val segment = timeline?.byId?.get(item.id)
                     val fraction = segment?.fraction(elapsed)?.toFloat() ?: 0f
                     val rect = blockRect.apply { set(left, y + dp(8f), right, y + dp(56f)) }
-                    paint.color = colorTrack; canvas.drawRoundRect(rect, dp(7f), dp(7f), paint)
+                    paint.color = track; canvas.drawRoundRect(rect, dp(7f), dp(7f), paint)
                     canvas.save(); canvas.clipRect(rect.left, rect.top, rect.left + rect.width() * fraction, rect.bottom)
                     paint.color = Color.argb(100, 45, 134, 221); canvas.drawRoundRect(rect, dp(7f), dp(7f), paint); canvas.restore()
-                    paint.color = colorInk; paint.textSize = sp(13f)
+                    paint.color = ink; paint.textSize = sp(13f)
                     // Labels can be long: wrap in a compact layout rather than paint outside the bar.
                     val label = row.blockLabelLayout!!
-                    label.paint.color = colorInk
+                    label.paint.color = ink
                     canvas.save(); canvas.clipRect(rect); canvas.translate(rect.left + dp(6f), rect.centerY() - label.height / 2f); label.draw(canvas); canvas.restore()
-                    paint.color = colorMuted; paint.textSize = sp(11f)
+                    paint.color = muted; paint.textSize = sp(11f)
                     val seconds = item.seconds * fraction
-                    canvas.drawText("${(fraction * 100).roundToInt()}%    ${formatTime(seconds)} / ${formatTime(item.seconds)}", left, y + dp(75f), paint)
+                    val status = "${(fraction * 100).roundToInt()}%    ${formatTime(seconds)} / ${formatTime(item.seconds)}"
+                    if (chaos) {
+                        paint.color = Color.rgb(5, 2, 15); paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(3f)
+                        canvas.drawText(status, left, y + dp(75f), paint)
+                        paint.style = Paint.Style.FILL; paint.color = muted
+                    }
+                    canvas.drawText(status, left, y + dp(75f), paint)
                 }
             }
         }
@@ -242,6 +285,11 @@ class ScriptReaderView(context: Context) : View(context) {
             paint.color = red; paint.strokeWidth = dp(2f)
             val markerLeft = dp(if (scrollbar == ReaderScrollbarPosition.LEFT) 24f else 6f)
             val markerRight = width - dp(if (scrollbar == ReaderScrollbarPosition.RIGHT) 24f else 6f)
+            if (chaos) {
+                paint.color = Color.rgb(5, 2, 15); paint.strokeWidth = dp(5f)
+                canvas.drawLine(markerLeft, markerY, markerRight, markerY, paint)
+                paint.color = Color.rgb(255, 58, 100); paint.strokeWidth = dp(2f)
+            }
             canvas.drawLine(markerLeft, markerY, markerRight, markerY, paint)
             paint.style = Paint.Style.FILL
             canvas.drawCircle(markerLeft, markerY, dp(3f), paint)
@@ -249,9 +297,9 @@ class ScriptReaderView(context: Context) : View(context) {
         if (scrollbar == ReaderScrollbarPosition.NONE) return
         // Draw slide starts over the thumb, entirely inside the same scrollbar track.
         val thumb = scrollbarThumb()
-        paint.color = colorTrack
+        paint.color = track
         canvas.drawRoundRect(thumb.left, dp(6f), thumb.right, height - dp(6f), dp(3f), dp(3f), paint)
-        paint.color = blue
+        paint.color = accent
         canvas.drawRoundRect(thumb, dp(3f), dp(3f), paint)
         val dotX = thumb.centerX()
         slideMarkerPositions().forEach { y ->

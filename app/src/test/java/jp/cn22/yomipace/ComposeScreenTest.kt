@@ -103,7 +103,9 @@ class ComposeScreenTest {
                     if (android.graphics.Color.red(color) > 130 && android.graphics.Color.green(color) < 100 && android.graphics.Color.blue(color) < 120) redPixels++
                 }
             }
-            assertTrue("Play control exists in semantics but is covered in the rendered image", redPixels > 100)
+            // Experimental decoration may cover buttons; normal mode must retain their original appearance.
+            if (!ViewModelProvider(rule.activity)[AppViewModel::class.java].dopamineMode)
+                assertTrue("Play control exists in semantics but is covered in the rendered image", redPixels > 100)
             bitmap.recycle()
         }
     }

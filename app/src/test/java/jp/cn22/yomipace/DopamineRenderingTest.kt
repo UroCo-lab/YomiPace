@@ -12,6 +12,22 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class DopamineRenderingTest {
+    @Test fun openingIsSubstantiallyBrighterThanTheFrozen050Reference() {
+        val before = BitmapFactory.decodeStream(javaClass.getResourceAsStream("/dopamine-050-start.png"))!!
+        val after = Bitmap.createBitmap(360, 800, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.rgb(12,10,24)) }
+        val engine = DopamineEngine({}, {})
+        engine.configure(true, false, true, true, DopamineLevel.at(0.0, 420.0))
+        DopamineRenderer().draw(Canvas(after), 360f,800f,1f,10_000,engine,
+            listOf(RectF(10f,205f,350f,275f),RectF(0f,423f,360f,800f)))
+        fun bright(bitmap: Bitmap): Int {
+            val p = IntArray(bitmap.width*bitmap.height); bitmap.getPixels(p,0,bitmap.width,0,0,bitmap.width,bitmap.height)
+            return p.count { maxOf(Color.red(it),Color.green(it),Color.blue(it)) > 150 }
+        }
+        val old = bright(before); val new = bright(after)
+        println("Opening bright pixels: 0.5.0=$old, 0.5.1=$new")
+        assertTrue("Opening did not become visibly stronger: $old -> $new", new > old * 2)
+        before.recycle(); after.recycle()
+    }
     @Test fun allEffectsLeaveClockAndReaderPixelsUntouchedIncludingOverlaps() {
         for ((w, h) in listOf(360 to 800, 720 to 840, 840 to 360)) {
             val windows = listOf(RectF(10f, h * .30f, w - 10f, h * .45f), RectF(0f, h * .55f, w.toFloat(), h.toFloat()),

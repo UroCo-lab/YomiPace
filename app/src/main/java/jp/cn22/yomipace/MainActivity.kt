@@ -216,6 +216,7 @@ private fun ReaderColumn(vm: AppViewModel, dark: Boolean, modifier: Modifier, sh
             } else {
                 AndroidView(factory = { context -> ScriptReaderView(context).also { it.onAnchorChanged = vm::updateAnchor } }, modifier = Modifier.fillMaxSize().clipToBounds(), update = {
                     it.onAnchorChanged = vm::updateAnchor
+                    it.bindDopamine(vm.dopamine)
                     it.bind(vm.deck?.script, vm.timeline, vm.fontSize, vm.elapsed, vm.anchor, dark, vm.scrollInertia, vm.readerScrollbar)
                 })
             }
@@ -498,5 +499,5 @@ timeは先頭に1回。省略時・不正時はメニューの「持ち時間」
 メニューからオン／オフと弱・中・強を設定します。初期はオン・中です。0.5.0への更新時は一度オン・中に設定し、その後の選択を保存します。予定ペースで、改行で区切った本文段落の全体がグレーになった時点で振動します。赤線や手動スクロールでは振動しません。停止中・開閉・文字サイズ変更だけでも振動しません。
 
 9. 実験：ドパガキモード
-メニュー「実験」でオンにすると、タッチの火花とコンボ、段落完了のバースト、時間とともに増す虹色の縁・集中線・紙吹雪を表示します。最後の10%でLIMIT BREAK、最後の3%でCLIMAX。音は鳴りません。原稿と時計は演出が重ならない領域です。演出の振動は専用の設定で変更できます。停止中はタッチの小さな火花だけで、設定画面やバックグラウンドでは休止します。初期はモードOFFで、選択は保存します。
+メニュー「実験」でオンにすると、開始直後から虹色WELCOME・星柄・流れるテロップ・連続花火・稲妻・熱量カウンターで盛り上げます。8コンボごとに大爆発、段落完了は三方向バースト。終盤はさらに加速します。スライドは大きな番号表示でも確認できます。原稿の背景も動きますが、本文・グレー表示・赤線は暗い下地と縁取りを付けて最前面へ描きます。時計はエフェクトを重ねず保護します。音は鳴りません。演出の振動は専用設定で変更できます。停止中は小さなタッチ反応だけ、設定画面やバックグラウンドでは休止します。初期はモードOFFで、選択は保存します。
 """.trimIndent()

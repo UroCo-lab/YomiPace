@@ -11,8 +11,8 @@ android {
         applicationId = "jp.cn22.yomipace"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.5.0"
+        versionCode = 15
+        versionName = "0.5.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

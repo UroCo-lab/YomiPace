@@ -19,11 +19,36 @@ class DopamineEngineTest {
         val engine = DopamineEngine({ pulses.add(it) }, {})
         engine.configure(true, true, true, true, DopamineLevel.at(98.0, 100.0))
         repeat(1000) { engine.touch(1000L + it, .5f, .6f) }
-        assertEquals(12, engine.combo); assertTrue(pulses.size <= 7)
-        assertTrue(engine.bursts.size <= 24)
+        assertEquals(17, engine.combo); assertTrue(pulses.size <= 7)
+        assertTrue(engine.bursts.size <= DopamineEngine.MAX_BURSTS)
         repeat(100) { engine.touch(3000L + 200 * it, .5f, .6f) }
-        assertEquals(24, engine.bursts.size)
+        assertEquals(DopamineEngine.MAX_BURSTS, engine.bursts.size)
         engine.tick(100_000); assertEquals(0, engine.combo); assertTrue(engine.bursts.size <= 1)
+    }
+    @Test fun startsWithVisibleEnergyAndContinuousBeatThenEscalates() {
+        val opening = DopamineLevel.at(0.0, 420.0)
+        val ending = DopamineLevel.at(415.0, 420.0)
+        assertTrue(opening.energy >= .4f); assertTrue(opening.beatMillis <= 900)
+        assertTrue(ending.beatMillis < opening.beatMillis / 2)
+        val pulses = mutableListOf<Float>()
+        val engine = DopamineEngine({ pulses.add(it) }, {})
+        engine.configure(true, true, true, true, opening)
+        engine.tick(1000); engine.tick(2000)
+        assertEquals(2, engine.bursts.size); assertEquals(1, pulses.size)
+        assertTrue(pulses.single() >= .4f)
+    }
+    @Test fun comboJackpotAndParagraphCreateMultipleBurstsAndResetQuietly() {
+        val engine = DopamineEngine({}, {})
+        engine.configure(true, true, true, true, DopamineLevel.at(0.0, 420.0))
+        repeat(8) { engine.touch(1000L + 100 * it, .5f, .6f) }
+        assertEquals(8, engine.combo)
+        assertTrue(engine.bursts.count { it.kind == DopamineBurstKind.JACKPOT } >= 2)
+        engine.paragraph(1900)
+        assertEquals(3, engine.bursts.count { it.kind == DopamineBurstKind.PARAGRAPH })
+        engine.configure(true, true, true, false, engine.level)
+        assertTrue(engine.bursts.isEmpty()); assertEquals(0, engine.combo)
+        engine.touch(2000, .5f, .6f)
+        assertEquals(1, engine.bursts.size); assertTrue(engine.bursts.single().power < .2f)
     }
     @Test fun disabledBackgroundPausedAndMutedModesDoNotProduceAutomaticHaptics() {
         var pulses = 0; var cancellations = 0

@@ -21,11 +21,14 @@ class ParagraphHaptics(context: Context) {
         val target = vibrator ?: return
         if (!target.hasVibrator()) return
         val power = energy.coerceIn(0f, 1f)
-        val duration = (8 + 25 * power).toLong()
-        val amplitude = if (target.hasAmplitudeControl()) (35 + 200 * power).toInt() else VibrationEffect.DEFAULT_AMPLITUDE
-        if (power >= .65f) target.vibrate(VibrationEffect.createWaveform(
-            longArrayOf(0, duration, 28, duration / 2), intArrayOf(0, amplitude, 0, amplitude), -1))
-        else target.vibrate(VibrationEffect.createOneShot(duration, amplitude))
+        val amplitude = if (target.hasAmplitudeControl()) (50 + 205 * power).toInt() else VibrationEffect.DEFAULT_AMPLITUDE
+        when {
+            power >= .8f -> target.vibrate(VibrationEffect.createWaveform(
+                longArrayOf(0, 42, 18, 26, 16, 18), intArrayOf(0, amplitude, 0, amplitude, 0, amplitude), -1))
+            power >= .35f -> target.vibrate(VibrationEffect.createWaveform(
+                longArrayOf(0, (20 + 24 * power).toLong(), 22, 18), intArrayOf(0, amplitude, 0, amplitude), -1))
+            else -> target.vibrate(VibrationEffect.createOneShot((8 + 22 * power).toLong(), amplitude))
+        }
     }
     fun cancel() { vibrator?.cancel() }
 }

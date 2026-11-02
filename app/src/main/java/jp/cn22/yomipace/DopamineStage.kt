@@ -36,7 +36,10 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
     val engine = vm.dopamine
     val available = vm.effectsForeground && !suspended && !vm.busy
     val enabled = vm.dopamineMode
-    SideEffect { engine.configure(enabled, vm.dopamineVibration, available, vm.running, DopamineLevel.at(vm.elapsed, vm.totalSeconds)) }
+    SideEffect {
+        engine.configure(enabled, vm.dopamineVibration, available, vm.running, DopamineLevel.at(vm.elapsed, vm.totalSeconds))
+        engine.slideNumber = vm.currentSlide; engine.slideCount = vm.deck?.images?.size ?: 0
+    }
     DisposableEffect(engine) { onDispose { engine.reset(); engine.available = false } }
     val frameTime = remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     LaunchedEffect(enabled, available, vm.running) {
@@ -82,13 +85,13 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
                 }
                 Switch(vm.dopamineMode, vm::changeDopamineMode, Modifier.semantics { contentDescription = "ドパガキモード" })
             }
-            Text("触れると火花とコンボ。予定ペースで段落がグレーになるとバースト。発表が進むほど虹色の縁・集中線・紙吹雪が増え、最後の10%でLIMIT BREAK、最後の3%でCLIMAX！ 超過中も熱量を保ちます。")
+            Text("開始直後から原色全開！ 虹色WELCOME、星柄の壁紙、流れる電光テロップ、熱量カウンターが古き良きインターネットを召喚。触ると連続花火、8コンボごとに大爆発、段落完了で三方向バースト。終盤は虹の渦と稲妻がさらに加速します。")
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("演出の振動", Modifier.weight(1f))
                 Switch(vm.dopamineVibration, vm::changeDopamineVibration, Modifier.semantics { contentDescription = "演出の振動" }, enabled = vm.dopamineMode)
             }
-            Text("このモード専用の振動設定です。「グレー表示のバイブ」とは別に保存します。原稿と時計はエフェクトの上書きから保護します。停止中はタッチの小さな火花だけ。設定画面・バックグラウンドでは演出を休止します。")
+            Text("このモード専用の振動設定です。「グレー表示のバイブ」とは別に保存します。原稿の背景も動きますが、文字・赤線・段落の進捗は暗い下地と縁取りを付けて最前面へ。時計は保護し、スライド番号は別の大きな表示でも確認できます。音は鳴りません。停止中は小さなタッチ反応だけ、設定画面・バックグラウンドでは休止します。")
         }
     }, confirmButton = { TextButton(onClick = dismiss) { Text("閉じる") } })
 }
