@@ -124,6 +124,80 @@ class ComposeScreenTest {
             assertTrue("Reader has no usable width", reader.width >= 250)
         }
     }
+    @Test fun experimentsToggleObserveReaderTouchAndStopOnPause() {
+        val vm = loadSample()
+        rule.runOnIdle { assertFalse(vm.dopamineMode) }
+        rule.onNodeWithText("⋮").performClick()
+        rule.onNodeWithText("実験").performClick()
+        rule.onNodeWithContentDescription("ドパガキモード").performClick()
+        rule.onNodeWithText("閉じる").performClick()
+        rule.onNodeWithTag("dopamine-effects").assertExists()
+        rule.runOnIdle { assertTrue(vm.dopamineMode); assertTrue(vm.dopamineVibration) }
+        rule.onNodeWithTag("script-viewport").performTouchInput { swipeUp(durationMillis = 500) }
+        rule.runOnIdle { assertTrue("Reader touch did not reach effects", vm.dopamine.lastInteraction != Long.MIN_VALUE) }
+        rule.onNodeWithText("開始").performClick()
+        rule.runOnIdle { assertTrue(vm.running) }
+        rule.onNodeWithText("停止").performClick()
+        rule.runOnIdle { assertFalse(vm.dopamine.running); assertTrue(vm.dopamine.bursts.isEmpty()) }
+        rule.runOnIdle { vm.changeDopamineVibration(false); vm.persist() }
+        // Robolectric can retain an AndroidViewModel factory from another Application sandbox.
+        val prefs = vm.getApplication<android.app.Application>().getSharedPreferences("yomipace", 0)
+        assertTrue(prefs.getBoolean("dopamineMode", false)); assertFalse(prefs.getBoolean("dopamineVibration", true))
+        rule.runOnIdle { vm.effectsForeground(false) }
+        rule.onNodeWithTag("dopamine-effects").assertDoesNotExist()
+    }
+
+    @Test fun singleProgressTrackCanJumpBackwardAndForwardWithoutMovingReader() {
+        val vm = loadSample()
+        rule.onAllNodesWithTag("presentation-progress").assertCountEquals(1)
+        rule.runOnIdle { vm.seekTo(200.0); vm.play() }
+        val anchor = vm.anchor
+        rule.runOnUiThread {
+            fun seek(view: android.view.View): TimeSeekView? = when (view) {
+                is TimeSeekView -> view
+                is android.view.ViewGroup -> (0 until view.childCount).firstNotNullOfOrNull { seek(view.getChildAt(it)) }
+                else -> null
+            }
+            val bar = requireNotNull(seek(rule.activity.window.decorView))
+            fun tap(fraction: Float) {
+                val now = android.os.SystemClock.uptimeMillis()
+                val x = bar.paddingLeft + (bar.width - bar.paddingLeft - bar.paddingRight) * fraction
+                bar.onTouchEvent(android.view.MotionEvent.obtain(now, now, 0, x, bar.height / 2f, 0))
+                assertFalse(vm.running)
+                bar.onTouchEvent(android.view.MotionEvent.obtain(now, now + 20, 1, x, bar.height / 2f, 0))
+            }
+            tap(.2f); assertEquals(84.0, vm.elapsed, 2.0); assertFalse(vm.running)
+            tap(.8f); assertEquals(336.0, vm.elapsed, 2.0); assertFalse(vm.running)
+            assertEquals(anchor, vm.anchor)
+        }
+        rule.onNodeWithText("開始").performClick()
+        rule.runOnIdle { assertTrue(vm.running) }
+    }
+
+    private fun dopamineSnapshots(name: String, fold: Boolean) {
+        val vm = loadSample()
+        if (fold) {
+            foldInfo.overrideWindowLayoutInfo(TestWindowLayoutInfo(listOf(TestFoldingFeature(rule.activity, state = FoldingFeature.State.FLAT, orientation = FoldingFeature.Orientation.VERTICAL))))
+            rule.onNodeWithTag("two-column-layout").assertIsDisplayed(); waitForImages()
+        }
+        rule.runOnIdle { vm.changeDopamineMode(true); vm.changeDopamineVibration(false); vm.seekTo(0.0); vm.play() }
+        rule.onNodeWithTag("dopamine-effects").assertIsDisplayed()
+        screenshot("dopamine-$name-spark")
+        rule.runOnIdle { vm.seekTo(410.0); vm.play() }
+        screenshot("dopamine-$name-climax")
+        rule.runOnIdle { assertTrue(vm.dopamine.level.energy > .9f); vm.pause() }
+        if (fold) {
+            rule.onNodeWithText("⇄").performClick(); waitForImages()
+            rule.runOnIdle { vm.seekTo(410.0); vm.play() }
+            screenshot("dopamine-$name-swapped")
+            rule.runOnIdle { vm.pause(); vm.setFont(24); assertTrue(vm.dopamineMode) }
+        }
+        rule.runOnIdle { vm.changeDopamineMode(false) }
+        rule.onNodeWithTag("dopamine-effects").assertDoesNotExist()
+    }
+    @Test fun dopamineCoverVisuals() = dopamineSnapshots("cover", false)
+    @Test @Config(qualifiers = "w720dp-h840dp-port-night-mdpi") fun dopamineFoldDarkVisualsAndSwap() = dopamineSnapshots("fold-dark", true)
+
     @Test fun compactScreenMenuAndSettings() {
         val vm = loadSample()
         rule.onNodeWithTag("clock-total").assertIsDisplayed().assertTextEquals("7:00")
@@ -378,7 +452,7 @@ class ComposeScreenTest {
         val viewport = rule.onNodeWithTag("script-viewport").fetchSemanticsNode().boundsInRoot
         assertTrue("Short landscape lost the manuscript: $viewport", viewport.height >= 80f)
         rule.onNodeWithText("時計欄を上下にスクロール").assertIsDisplayed()
-        rule.onNodeWithContentDescription("経過時間のシーク 0:00").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("presentation-progress").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("開始").assertIsDisplayed()
         rule.onNodeWithText("停止").assertIsDisplayed()
         screenshot("short-landscape-clock-scrolled")

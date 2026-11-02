@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlin.math.roundToInt
@@ -61,6 +62,8 @@ internal class TimeSeekView(context: Context, private val vm: AppViewModel) : Se
     override fun performClick(): Boolean { super.performClick(); return true }
     fun refresh() {
         isEnabled = vm.timeline != null && !vm.busy && vm.editorDraft == null
+        progressTintList = ColorStateList.valueOf(if (vm.totalSeconds?.let { vm.elapsed > it } == true) Color.rgb(197, 46, 64) else Color.rgb(23, 100, 166))
+        thumbTintList = progressTintList
         if (!tracking) {
             rangeSeconds = maxOf(vm.totalSeconds ?: 0.0, vm.elapsed, 1.0)
             progress = (vm.elapsed / rangeSeconds * max).roundToInt().coerceIn(0, max)
@@ -73,7 +76,7 @@ internal class TimeSeekView(context: Context, private val vm: AppViewModel) : Se
     val seconds = vm.elapsed
     val enabled = vm.timeline != null && !vm.busy
     AndroidView(factory = { TimeSeekView(it, vm) },
-        modifier = Modifier.fillMaxWidth().height(36.dp).semantics { contentDescription = "経過時間のシーク ${formatTime(seconds)}${if (enabled) "" else "（無効）"}" },
+        modifier = Modifier.fillMaxWidth().height(40.dp).testTag("presentation-progress").semantics { contentDescription = "発表の進捗 ${formatTime(seconds)}。直接操作すると停止し、時間を変更します${if (enabled) "" else "（無効）"}" },
         update = { it.refresh() })
 }
 

@@ -48,11 +48,11 @@ class VibrationAndRailTest {
         ParagraphHaptics(app).pulse(vm.vibrationEnabled, vm.vibrationStrength)
         assertEquals(24L, output.milliseconds)
     }
-    @Test fun explicitOffAndSelectedStrengthSurviveUpdateAndRelaunch() {
-        // A saved OFF is a user choice, even when the unsaved default changes to ON.
+    @Test fun updateEnablesVibrationOnceThenRespectsSubsequentOffAndStrength() {
+        // 0.5.0 explicitly repairs an OFF carried from earlier versions, once only.
         app.getSharedPreferences("yomipace", 0).edit().putBoolean("vibrationEnabled", false).putInt("vibrationStrength", 0).commit()
         val vm = model()
-        assertFalse(vm.vibrationEnabled); assertEquals(0, vm.vibrationStrength)
+        assertTrue(vm.vibrationEnabled); assertEquals(1, vm.vibrationStrength)
         vm.setVibration(true, 2)
         val restored = model()
         assertTrue(restored.vibrationEnabled); assertEquals(2, restored.vibrationStrength)

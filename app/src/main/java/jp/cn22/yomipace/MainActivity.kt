@@ -80,11 +80,14 @@ class MainActivity : ComponentActivity() {
         }
     }
     override fun onStop() { model.persist(); super.onStop() }
+    override fun onResume() { super.onResume(); model.effectsForeground(true) }
+    override fun onPause() { model.effectsForeground(false); super.onPause() }
 }
 
 @Composable
 fun YomiPaceScreen(vm: AppViewModel, dark: Boolean, foldMainScreen: Boolean = false) {
     var dialog by rememberSaveable { mutableStateOf<String?>(null) }
+    var menuOpen by remember { mutableStateOf(false) }
     var controlsHeight by remember { mutableStateOf(220.dp) }
     val density = LocalDensity.current
     val slideListState = rememberLazyListState()
@@ -94,10 +97,12 @@ fun YomiPaceScreen(vm: AppViewModel, dark: Boolean, foldMainScreen: Boolean = fa
         if (vm.running) vm.message = "ZIPを開く前に時計を停止してください。"
         else if (!vm.importing) picker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
     }
+    DopamineStage(vm, dialog != null || menuOpen || vm.libraryLocation != null || vm.editorDraft != null || vm.message != null) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
             Row(Modifier.fillMaxWidth().height(30.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("YomiPace", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                if (vm.dopamineMode) Text(" ⚡実験", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(12.dp))
                 Text(vm.deck?.name ?: "資料未選択", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -112,23 +117,24 @@ fun YomiPaceScreen(vm: AppViewModel, dark: Boolean, foldMainScreen: Boolean = fa
                 }
                 if (expanded) {
                     Row(Modifier.fillMaxSize().testTag("two-column-layout")) {
-                        if (!vm.swapped) SlideList(vm.deck, vm.currentSlide, slideListState, Modifier.weight(1f).fillMaxHeight()) else ReaderColumn(vm, dark, Modifier.weight(1f).fillMaxHeight(), { dialog = it }, ::openZip)
+                        if (!vm.swapped) SlideList(vm.deck, vm.currentSlide, slideListState, Modifier.weight(1f).fillMaxHeight()) else ReaderColumn(vm, dark, Modifier.weight(1f).fillMaxHeight(), { dialog = it }, ::openZip, onMenuChanged = { menuOpen = it })
                         Box(Modifier.width(40.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
                             Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
                             TextButton(onClick = vm::swap, modifier = Modifier.width(40.dp).height(48.dp).background(MaterialTheme.colorScheme.surface), contentPadding = PaddingValues(0.dp)) {
                                 Text("⇄", fontSize = 23.sp, modifier = Modifier.semantics { contentDescription = "左右入替" })
                             }
                         }
-                        if (!vm.swapped) ReaderColumn(vm, dark, Modifier.weight(1f).fillMaxHeight(), { dialog = it }, ::openZip) else SlideList(vm.deck, vm.currentSlide, slideListState, Modifier.weight(1f).fillMaxHeight())
+                        if (!vm.swapped) ReaderColumn(vm, dark, Modifier.weight(1f).fillMaxHeight(), { dialog = it }, ::openZip, onMenuChanged = { menuOpen = it }) else SlideList(vm.deck, vm.currentSlide, slideListState, Modifier.weight(1f).fillMaxHeight())
                     }
                 } else {
                     Column(Modifier.fillMaxSize().testTag("stacked-layout")) {
                         CompactSlides(vm.deck, vm.currentSlide, Modifier.fillMaxWidth().height(collapsedSlideHeight))
-                        ReaderColumn(vm, dark, Modifier.weight(1f).fillMaxWidth(), { dialog = it }, ::openZip, { controlsHeight = with(density) { it.toDp() } })
+                        ReaderColumn(vm, dark, Modifier.weight(1f).fillMaxWidth(), { dialog = it }, ::openZip, { controlsHeight = with(density) { it.toDp() } }, { menuOpen = it })
                     }
                 }
             }
         }
+    }
     }
     val currentDialog = dialog
     if (currentDialog != null) {
@@ -144,6 +150,7 @@ fun YomiPaceScreen(vm: AppViewModel, dark: Boolean, foldMainScreen: Boolean = fa
             "time" -> TimeDialog(vm, { dialog = null })
             "help" -> HelpDialog { dialog = null }
             "display" -> DisplaySettingsDialog(vm) { dialog = null }
+            "experiments" -> ExperimentsDialog(vm) { dialog = null }
             "vibration" -> VibrationSettingsDialog(vm, dark) { dialog = null }
             "clear" -> AlertDialog(onDismissRequest = { dialog = null }, title = { Text("資料をクリア") }, text = { Text("表示中の資料と時計を未選択状態に戻します。アーカイブ・元のZIP・表示設定は保持します。") }, confirmButton = { TextButton(onClick = { vm.clear(); dialog = null }) { Text("クリア") } }, dismissButton = { TextButton(onClick = { dialog = null }) { Text("閉じる") } })
             "reset" -> AlertDialog(onDismissRequest = { dialog = null }, title = { Text("時間リセット") }, text = { Text("時計を0に戻して停止します。資料・設定・赤線の原稿位置は保持します。") }, confirmButton = { TextButton(onClick = { vm.resetTime(); dialog = null }) { Text("時間リセット") } }, dismissButton = { TextButton(onClick = { dialog = null }) { Text("閉じる") } })
@@ -155,8 +162,9 @@ fun YomiPaceScreen(vm: AppViewModel, dark: Boolean, foldMainScreen: Boolean = fa
 }
 
 @Composable
-private fun ReaderColumn(vm: AppViewModel, dark: Boolean, modifier: Modifier, show: (String) -> Unit, openZip: () -> Unit, onControlsHeight: (Int) -> Unit = {}) {
+private fun ReaderColumn(vm: AppViewModel, dark: Boolean, modifier: Modifier, show: (String) -> Unit, openZip: () -> Unit, onControlsHeight: (Int) -> Unit = {}, onMenuChanged: (Boolean) -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
+    DisposableEffect(menu) { onMenuChanged(menu); onDispose { onMenuChanged(false) } }
     BoxWithConstraints(modifier) {
     val clockScroll = rememberScrollState()
     val density = LocalDensity.current
@@ -182,6 +190,7 @@ private fun ReaderColumn(vm: AppViewModel, dark: Boolean, modifier: Modifier, sh
                     DropdownMenuItem(text = { Text("ゴミ箱") }, enabled = !vm.busy, onClick = { menu = false; vm.showLibrary(DeckLocation.TRASH) })
                     DropdownMenuItem(text = { Text("グレー表示のバイブ") }, onClick = { menu = false; show("vibration") })
                     DropdownMenuItem(text = { Text("表示・操作設定") }, onClick = { menu = false; show("display") })
+                    DropdownMenuItem(text = { Text("実験") }, onClick = { menu = false; show("experiments") })
                     DropdownMenuItem(text = { Text("持ち時間") }, onClick = { menu = false; show("time") })
                     DropdownMenuItem(text = { Text("クリア") }, enabled = !vm.importing, onClick = { menu = false; show("clear") })
                     DropdownMenuItem(text = { Text("使い方") }, onClick = { menu = false; show("help") })
@@ -196,7 +205,7 @@ private fun ReaderColumn(vm: AppViewModel, dark: Boolean, modifier: Modifier, sh
             Text(problem, fontSize = 11.sp, lineHeight = 15.sp, color = MaterialTheme.colorScheme.error, modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp))
         }
         }
-        Box(Modifier.weight(1f).fillMaxWidth().testTag("script-viewport").border(1.dp, MaterialTheme.colorScheme.outlineVariant).background(MaterialTheme.colorScheme.surface)) {
+        Box(Modifier.weight(1f).fillMaxWidth().effectWindow("reader").testTag("script-viewport").border(1.dp, MaterialTheme.colorScheme.outlineVariant).background(MaterialTheme.colorScheme.surface)) {
             if (vm.deck == null) {
                 Column(Modifier.align(Alignment.Center).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("発表のペースを、手元に。", fontSize = 17.sp, color = MaterialTheme.colorScheme.primary)
@@ -225,8 +234,6 @@ private fun ClockPanel(vm: AppViewModel) {
             Text(if (vm.deck == null) "スライド — / —" else "スライド ${vm.currentSlide} / ${vm.deck!!.images.size}", fontSize = 11.sp)
             if (total == null || overtime) Text(if (total == null) "時間未設定" else "超過 +${formatTime(vm.elapsed - total)}", fontSize = 11.sp, color = if (overtime) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Spacer(Modifier.height(3.dp))
-        LinearProgressIndicator(progress = { if (total == null) 0f else (vm.elapsed / total).coerceIn(0.0, 1.0).toFloat() }, modifier = Modifier.fillMaxWidth().height(3.dp), color = if (overtime) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
         TimeSeekBar(vm)
         Text(if (vm.importing) "資料を読み込み中" else if (vm.running) "計測中" else "停止中", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -249,7 +256,7 @@ private data class ClockItem(val label: String, val text: String, val size: Int,
     )
     val labelStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 0.sp)
     val valueStyle = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium, letterSpacing = 0.sp)
-    BoxWithConstraints(Modifier.fillMaxWidth().testTag("clock-times")) {
+    BoxWithConstraints(Modifier.fillMaxWidth().effectWindow("clocks").testTag("clock-times")) {
         if (maxWidth <= 0.dp) return@BoxWithConstraints
         val gap = minOf(8.dp, maxWidth / 12)
         fun measuredWidth(index: Int, size: Float, labels: Float): Float {
@@ -461,7 +468,7 @@ timeは先頭に1回。省略時・不正時はメニューの「持ち時間」
 
 3. 発表する
 「開始」で開始／続行、「停止」で一時停止。停止時間は経過に含みません。持ち時間を過ぎても時計は進み、超過を表示します。持ち時間と切替秒数は停止中に変更できます。
-時計下のシークバーで任意の経過時間へ移動できます。触れた時点で停止し、離した後も停止を保ちます。「開始」で変更後の時間から再開します。巻き戻した本文・時間指定ブロック・切替バーは未完了へ戻ります。赤線の手動位置は保持します。
+時計下の1本の進捗バーを直接タップ・ドラッグして、任意の経過時間へ移動できます。触れた時点で停止し、離した後も停止を保ちます。「開始」で変更後の時間から再開します。巻き戻した本文・時間指定ブロック・切替バーは未完了へ戻ります。赤線の手動位置は保持します。
 
 4. 赤線とグレー
 原稿を手動で上下にスクロールし、実際に読む箇所を赤線に合わせます。上下配置では、その#番号のスライドと次の2枚を表示します。2カラムでは、そのスライドを列の先頭に表示し、続きの画像を下へスクロールできます。スライド欄だけのスクロールでは原稿位置と時計は変わりません。原稿の自動スクロールはしません。
@@ -488,5 +495,8 @@ timeは先頭に1回。省略時・不正時はメニューの「持ち時間」
 読み込んだZIPはアプリ内アーカイブに保存します。各資料の「開く」、鉛筆の編集、ゴミ箱ボタンを使えます。ゴミ箱からは復元、または確認後に完全削除できます。旧版の資料は残っている表示用データを引き継ぎます。
 
 8. グレー表示のバイブ
-メニューからオン／オフと弱・中・強を設定します。初期はオン・中です。保存済みの設定は引き継ぎます。予定ペースで、改行で区切った本文段落の全体がグレーになった時点で振動します。赤線や手動スクロールでは振動しません。停止中・開閉・文字サイズ変更だけでも振動しません。
+メニューからオン／オフと弱・中・強を設定します。初期はオン・中です。0.5.0への更新時は一度オン・中に設定し、その後の選択を保存します。予定ペースで、改行で区切った本文段落の全体がグレーになった時点で振動します。赤線や手動スクロールでは振動しません。停止中・開閉・文字サイズ変更だけでも振動しません。
+
+9. 実験：ドパガキモード
+メニュー「実験」でオンにすると、タッチの火花とコンボ、段落完了のバースト、時間とともに増す虹色の縁・集中線・紙吹雪を表示します。最後の10%でLIMIT BREAK、最後の3%でCLIMAX。音は鳴りません。原稿と時計は演出が重ならない領域です。演出の振動は専用の設定で変更できます。停止中はタッチの小さな火花だけで、設定画面やバックグラウンドでは休止します。初期はモードOFFで、選択は保存します。
 """.trimIndent()

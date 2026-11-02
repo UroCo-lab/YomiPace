@@ -23,10 +23,28 @@ import java.util.UUID
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("yomipace", 0)
+    init {
+        // Capture a new install before the preference migration writes any defaults.
+        runCatching { WelcomeSample.prepare(application) }
+        if (!prefs.getBoolean("vibrationOnMigration050", false)) {
+            prefs.edit().putBoolean("vibrationEnabled", true).putInt("vibrationStrength", 1)
+                .putBoolean("vibrationOnMigration050", true).apply()
+        }
+    }
     private val decks = File(application.filesDir, "decks").apply { mkdirs() }
     private val store = DeckStore(decks)
     val clock = PresentationClock { SystemClock.elapsedRealtime() }
     private val haptics = ParagraphHaptics(application)
+    internal val dopamine = DopamineEngine(haptics::dopaminePulse, haptics::cancel)
+    var dopamineMode by mutableStateOf(prefs.getBoolean("dopamineMode", false)); private set
+    var dopamineVibration by mutableStateOf(prefs.getBoolean("dopamineVibration", true)); private set
+    internal var effectsForeground by mutableStateOf(false); private set
+    internal fun effectsForeground(value: Boolean) {
+        effectsForeground = value
+        if (!value) { dopamine.reset(); dopamine.available = false }
+    }
+    fun changeDopamineMode(value: Boolean) { dopamineMode = value; if (!value) { dopamine.reset(); dopamine.enabled = false }; persist() }
+    fun changeDopamineVibration(value: Boolean) { dopamineVibration = value; dopamine.vibration = value; if (!value) haptics.cancel(); persist() }
     private var paragraphSchedule: ScheduledParagraphs? = null
     var deck by mutableStateOf<ImportedDeck?>(null); private set
     var timeline by mutableStateOf<Timeline?>(null); private set
@@ -124,14 +142,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     private fun updateElapsed(allowVibration: Boolean) {
         elapsed = clock.elapsedMillis / 1000.0
-        if (paragraphSchedule?.advance(elapsed) == true && allowVibration) haptics.pulse(vibrationEnabled, vibrationStrength)
+        if (paragraphSchedule?.advance(elapsed) == true && allowVibration) {
+            dopamine.paragraph(SystemClock.elapsedRealtime())
+            if (!dopamine.enabled || !dopamine.available || !dopamine.vibration) haptics.pulse(vibrationEnabled, vibrationStrength)
+        }
     }
-    fun pause() { val wasRunning = clock.running; clock.pause(); running = false; updateElapsed(wasRunning); persist() }
-    fun resetTime() { clock.reset(); running = false; elapsed = 0.0; paragraphSchedule?.seek(0.0); persist() }
+    fun pause() { val wasRunning = clock.running; clock.pause(); running = false; updateElapsed(wasRunning); dopamine.running = false; dopamine.reset(); persist() }
+    fun resetTime() { clock.reset(); running = false; elapsed = 0.0; paragraphSchedule?.seek(0.0); dopamine.running = false; dopamine.reset(); persist() }
     fun seekTo(seconds: Double) {
         if (!seconds.isFinite() || timeline == null || busy) return
         clock.restorePaused((seconds.coerceAtLeast(0.0) * 1000).toLong())
         running = false; elapsed = clock.elapsedMillis / 1000.0
+        dopamine.running = false; dopamine.reset()
         paragraphSchedule?.seek(elapsed)
         persist()
     }
@@ -170,6 +192,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun persist() {
         prefs.edit().putInt("font", fontSize).putString("switchSeconds", switchSeconds.toString()).putBoolean("swapped", swapped)
+            .putBoolean("dopamineMode", dopamineMode).putBoolean("dopamineVibration", dopamineVibration)
             .putString("readerScrollbar", readerScrollbar.name)
             .putInt("totalFontSize", totalFontSize).putInt("elapsedFontSize", elapsedFontSize)
             .putInt("remainingFontSize", remainingFontSize).putString("totalClockColor", totalClockColor)
