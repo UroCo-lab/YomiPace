@@ -229,7 +229,7 @@ private fun ReaderColumn(vm: AppViewModel, dark: Boolean, modifier: Modifier, sh
 private fun ClockPanel(vm: AppViewModel) {
     val total = vm.totalSeconds
     val overtime = total != null && vm.elapsed > total
-    Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
+    Column(Modifier.fillMaxWidth().effectWindow("progress-panel").padding(horizontal = 10.dp, vertical = 4.dp)) {
         ClockTimes(vm)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(if (vm.deck == null) "スライド — / —" else "スライド ${vm.currentSlide} / ${vm.deck!!.images.size}", fontSize = 11.sp)
@@ -351,7 +351,7 @@ private data class SlideImageLoad(val image: ImageBitmap? = null, val failed: Bo
             loading.value = SlideImageLoad(failed = true)
     }
     val loaded by loading
-    Column(modifier.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(5.dp)).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(5.dp)).padding(if (tiny) 2.dp else 5.dp)) {
+    Column(modifier.effectWindow("slide-$label-$number").background(MaterialTheme.colorScheme.surface, RoundedCornerShape(5.dp)).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(5.dp)).padding(if (tiny) 2.dp else 5.dp)) {
         Text(if (file == null) "$label —" else "$label · $number", fontSize = if (tiny) 8.sp else 10.sp, lineHeight = if (tiny) 10.sp else 13.sp, color = MaterialTheme.colorScheme.primary, maxLines = 1)
         val imageModifier = if (fullWidth) Modifier.fillMaxWidth().aspectRatio(16f / 9f) else Modifier.weight(1f).fillMaxWidth()
         Box(imageModifier, contentAlignment = Alignment.Center) {
@@ -499,5 +499,5 @@ timeは先頭に1回。省略時・不正時はメニューの「持ち時間」
 メニューからオン／オフと弱・中・強を設定します。初期はオン・中です。0.5.0への更新時は一度オン・中に設定し、その後の選択を保存します。予定ペースで、改行で区切った本文段落の全体がグレーになった時点で振動します。赤線や手動スクロールでは振動しません。停止中・開閉・文字サイズ変更だけでも振動しません。
 
 9. 実験：ドパガキモード
-メニュー「実験」でオンにすると、開始直後から虹色WELCOME・星柄・流れるテロップ・連続花火・稲妻・熱量カウンターで盛り上げます。8コンボごとに大爆発、段落完了は三方向バースト。終盤はさらに加速します。スライドは大きな番号表示でも確認できます。原稿の背景も動きますが、本文・グレー表示・赤線は暗い下地と縁取りを付けて最前面へ描きます。時計はエフェクトを重ねず保護します。音は鳴りません。演出の振動は専用設定で変更できます。停止中は小さなタッチ反応だけ、設定画面やバックグラウンドでは休止します。初期はモードOFFで、選択は保存します。
+メニュー「実験」でオンにすると、序盤の小さな火花から終盤の虹色WELCOME・招き猫・花火・稲妻へ徐々に盛り上がります。「演出の強さ」（30～100%）と「盛り上がる速さ」（じわじわ・標準・早め）を調整できます。時間を巻き戻すとコンボ・花火を消し、その時間の強さへ戻ります。原稿をスクロールしても演出段階は変わりません。時計と進捗バーには演出を重ねず、スライドは薄い装飾だけ。原稿は従来どおり動く背景＋最前面の文字・赤線です。「振動ビート」は72→180 BPMで加速し4拍ごとに強拍を刻みます。ON中はタッチや段落の振動を重ねません。「演出の振動」がOFFならビートも止まります。音は鳴りません。停止中は小さなタッチ反応だけ、設定画面・バックグラウンドでは休止。モードは初期OFF、振動とビートは初期ONで、全設定を保存します。
 """.trimIndent()

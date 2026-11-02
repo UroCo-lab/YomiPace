@@ -20,6 +20,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 private val LocalEffectWindows = compositionLocalOf<MutableMap<String, Rect>?> { null }
 
@@ -37,7 +38,8 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
     val available = vm.effectsForeground && !suspended && !vm.busy
     val enabled = vm.dopamineMode
     SideEffect {
-        engine.configure(enabled, vm.dopamineVibration, available, vm.running, DopamineLevel.at(vm.elapsed, vm.totalSeconds))
+        engine.configure(enabled, vm.dopamineVibration, available, vm.running,
+            DopamineLevel.at(vm.elapsed, vm.totalSeconds, vm.dopamineStrength, vm.dopamineRise), vm.dopamineBeat)
         engine.slideNumber = vm.currentSlide; engine.slideCount = vm.deck?.images?.size ?: 0
     }
     DisposableEffect(engine) { onDispose { engine.reset(); engine.available = false } }
@@ -66,10 +68,10 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
             }) {
             content()
             if (enabled && available) Canvas(Modifier.matchParentSize().testTag("dopamine-effects")) {
-                val protected = windows.values.filter { it.width > 0 && it.height > 0 }.map {
+                fun regions(slides: Boolean) = windows.filter { (key, rect) -> key.startsWith("slide-") == slides && rect.width > 0 && rect.height > 0 }.values.map {
                     RectF(it.left - root.left, it.top - root.top, it.right - root.left, it.bottom - root.top)
                 }
-                renderer.draw(drawContext.canvas.nativeCanvas, size.width, size.height, density, frameTime.longValue, engine, protected)
+                renderer.draw(drawContext.canvas.nativeCanvas, size.width, size.height, density, frameTime.longValue, engine, regions(false), regions(true))
             }
         }
     }
@@ -85,13 +87,32 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
                 }
                 Switch(vm.dopamineMode, vm::changeDopamineMode, Modifier.semantics { contentDescription = "ドパガキモード" })
             }
-            Text("開始直後から原色全開！ 虹色WELCOME、星柄の壁紙、流れる電光テロップ、熱量カウンターが古き良きインターネットを召喚。触ると連続花火、8コンボごとに大爆発、段落完了で三方向バースト。終盤は虹の渦と稲妻がさらに加速します。")
+            Text("序盤は小さな火花から。経過時間に合わせて虹色WELCOME・招き猫・花火・稲妻が増え、終盤に向けて盛り上がります。時間を巻き戻すとコンボと花火をリセットし、その時点の強さへ戻ります。原稿を手でスクロールしても演出の段階は変わりません。")
+            Spacer(Modifier.height(12.dp))
+            Text("演出の強さ：${vm.dopamineStrength}%")
+            Slider(value = vm.dopamineStrength.toFloat(), onValueChange = { vm.changeDopamineStrength(it.roundToInt()) },
+                valueRange = 30f..100f, steps = 6, enabled = vm.dopamineMode,
+                modifier = Modifier.semantics { contentDescription = "演出の強さ" })
+            Text("終盤の最大の派手さを調整します。序盤はどの設定でも控えめです。")
+            Text("盛り上がる速さ：${vm.dopamineRise.label}")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                DopamineRise.entries.forEach { rise ->
+                    FilterChip(selected = vm.dopamineRise == rise, onClick = { vm.changeDopamineRise(rise) },
+                        label = { Text(rise.label) }, enabled = vm.dopamineMode)
+                }
+            }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("演出の振動", Modifier.weight(1f))
                 Switch(vm.dopamineVibration, vm::changeDopamineVibration, Modifier.semantics { contentDescription = "演出の振動" }, enabled = vm.dopamineMode)
             }
-            Text("このモード専用の振動設定です。「グレー表示のバイブ」とは別に保存します。原稿の背景も動きますが、文字・赤線・段落の進捗は暗い下地と縁取りを付けて最前面へ。時計は保護し、スライド番号は別の大きな表示でも確認できます。音は鳴りません。停止中は小さなタッチ反応だけ、設定画面・バックグラウンドでは休止します。")
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("振動ビート", Modifier.weight(1f))
+                Switch(vm.dopamineBeat, vm::changeDopamineBeat, Modifier.semantics { contentDescription = "振動ビート" },
+                    enabled = vm.dopamineMode && vm.dopamineVibration)
+            }
+            Text("振動ビートON：72→180 BPMで加速し、4拍ごとに強拍を刻みます。タッチや段落完了の振動を重ねず、リズムを保ちます。OFF：タッチ・段落完了だけ振動します。「演出の振動」をOFFにすると両方止まります。")
+            Text("このモード専用の設定です。「グレー表示のバイブ」とは別に保存します。原稿の文字・赤線・段落の進捗は従来どおり最前面へ。時計・進捗バーには演出を重ねず、スライド上は薄い装飾だけにします。音は鳴りません。停止中は小さなタッチ反応だけ、設定画面・バックグラウンドでは休止します。選んだ強さ・速さ・ビート設定は再起動後も保持します。")
         }
     }, confirmButton = { TextButton(onClick = dismiss) { Text("閉じる") } })
 }

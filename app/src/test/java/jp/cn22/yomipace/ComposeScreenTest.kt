@@ -41,7 +41,10 @@ class ComposeScreenTest {
     @get:Rule(order = 1) val foldInfo = WindowLayoutInfoPublisherRule()
     @get:Rule(order = 2) val rule = createAndroidComposeRule<MainActivity>()
     @org.junit.After fun stopPresentationBeforeClosingActivity() {
-        rule.runOnIdle { ViewModelProvider(rule.activity)[AppViewModel::class.java].let { it.pause(); it.clear() } }
+        rule.runOnIdle { ViewModelProvider(rule.activity)[AppViewModel::class.java].let {
+            it.pause(); it.clear(); it.changeDopamineMode(false); it.changeDopamineVibration(true)
+            it.changeDopamineStrength(100); it.changeDopamineRise(DopamineRise.STANDARD); it.changeDopamineBeat(true)
+        } }
     }
     private fun loadSample(): AppViewModel {
         val vm = ViewModelProvider(rule.activity)[AppViewModel::class.java]
@@ -152,7 +155,7 @@ class ComposeScreenTest {
     @Test fun singleProgressTrackCanJumpBackwardAndForwardWithoutMovingReader() {
         val vm = loadSample()
         rule.onAllNodesWithTag("presentation-progress").assertCountEquals(1)
-        rule.runOnIdle { vm.seekTo(200.0); vm.play() }
+        rule.runOnIdle { vm.changeDopamineMode(true); vm.seekTo(410.0); vm.play() }
         val anchor = vm.anchor
         rule.runOnUiThread {
             fun seek(view: android.view.View): TimeSeekView? = when (view) {
@@ -169,11 +172,29 @@ class ComposeScreenTest {
                 bar.onTouchEvent(android.view.MotionEvent.obtain(now, now + 20, 1, x, bar.height / 2f, 0))
             }
             tap(.2f); assertEquals(84.0, vm.elapsed, 2.0); assertFalse(vm.running)
+            assertTrue(vm.dopamine.level.energy < .10f); assertEquals(0,vm.dopamine.combo); assertTrue(vm.dopamine.bursts.isEmpty())
             tap(.8f); assertEquals(336.0, vm.elapsed, 2.0); assertFalse(vm.running)
             assertEquals(anchor, vm.anchor)
         }
         rule.onNodeWithText("開始").performClick()
         rule.runOnIdle { assertTrue(vm.running) }
+    }
+
+    @Test fun experimentStrengthRiseAndBeatCanBeChangedInSettingsAndPersist() {
+        val vm=loadSample()
+        rule.onNodeWithText("⋮").performClick(); rule.onNodeWithText("実験").performClick()
+        rule.onNodeWithContentDescription("ドパガキモード").performClick()
+        rule.onNodeWithContentDescription("演出の強さ").performScrollTo()
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(60f) }
+        rule.onNodeWithText("じわじわ").performScrollTo().performClick()
+        rule.onNodeWithContentDescription("振動ビート").performScrollTo().performClick()
+        rule.onNodeWithText("閉じる").performClick()
+        rule.runOnIdle { assertEquals(60,vm.dopamineStrength); assertEquals(DopamineRise.SLOW,vm.dopamineRise); assertFalse(vm.dopamineBeat) }
+        rule.activityRule.scenario.recreate()
+        rule.runOnIdle {
+            val restored=ViewModelProvider(rule.activity)[AppViewModel::class.java]
+            assertEquals(60,restored.dopamineStrength); assertEquals(DopamineRise.SLOW,restored.dopamineRise); assertFalse(restored.dopamineBeat)
+        }
     }
 
     private fun dopamineSnapshots(name: String, fold: Boolean) {

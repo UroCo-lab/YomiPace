@@ -36,12 +36,13 @@ internal class DopamineRenderer {
     }
 
     fun draw(canvas: Canvas, width: Float, height: Float, density: Float, now: Long,
-             engine: DopamineEngine, protected: List<RectF>) {
+             engine: DopamineEngine, protected: List<RectF>, slides: List<RectF> = emptyList()) {
         if (!engine.enabled || !engine.available || width <= 0 || height <= 0) return
-        outside(width, height, protected)
+        outside(width, height, protected + slides)
         val saved = canvas.save(); canvas.clipPath(clip)
         val t = (now % 120_000L) / 1000f
         val e = if (engine.running) engine.level.energy else .08f
+        canvas.saveLayerAlpha(0f, 0f, width, height, (255 * e).toInt())
         val reader = protected.maxByOrNull { it.height() }
         val split = reader != null && reader.width() < width * .75f
         val left = if (split && reader!!.centerX() < width / 2) reader.right else 0f
@@ -56,8 +57,22 @@ internal class DopamineRenderer {
             frame(canvas, width, height, density, t, e)
         }
         bursts(canvas, width, height, density, now, engine, protected)
-        if (engine.running) retro(canvas, left, right, topRoom, density, t, e, now, engine)
+        if (engine.running && e > .30f) {
+            val retroSave = canvas.saveLayerAlpha(0f, 0f, width, height, (255 * ((e - .30f) / .70f).coerceIn(0f, 1f)).toInt())
+            retro(canvas, left, right, topRoom, density, t, e, now, engine)
+            canvas.restoreToCount(retroSave)
+        }
         canvas.restoreToCount(saved)
+        // Slides retain their real content and number: only a faint, bounded accent, never slogans or bursts.
+        if (engine.running && slides.isNotEmpty()) {
+            val slideClip = Path()
+            slides.forEach { r -> path.reset(); path.addRect(r, Path.Direction.CW); slideClip.op(path, Path.Op.UNION) }
+            protected.forEach { r -> path.reset(); path.addRect(r, Path.Direction.CW); slideClip.op(path, Path.Op.DIFFERENCE) }
+            val slideSave = canvas.save(); canvas.clipPath(slideClip)
+            canvas.saveLayerAlpha(0f, 0f, width, height, (255 * (.02f + .10f * e)).toInt())
+            field(canvas, width, height, density, t, e, cx, cy, false)
+            canvas.restoreToCount(slideSave)
+        }
     }
 
     /** Called before line plates, text, progress and the red marker inside ScriptReaderView. */
@@ -67,6 +82,7 @@ internal class DopamineRenderer {
         val e = if (engine.running) engine.level.energy else .08f
         val saved = canvas.save(); canvas.clipRect(0f, 0f, width, height)
         ink(0xFF09031B.toInt()); canvas.drawRect(0f, 0f, width, height, paint)
+        canvas.saveLayerAlpha(0f, 0f, width, height, (255 * (.12f + .88f * e)).toInt())
         field(canvas, width, height, density, t, e, width * .5f, height * .35f, true)
         canvas.restoreToCount(saved)
     }
@@ -186,6 +202,9 @@ internal class DopamineRenderer {
 
     private fun retro(c: Canvas, left: Float, right: Float, room: Float, d: Float, t: Float, e: Float, now: Long, engine: DopamineEngine) {
         val width = right - left; val cx = (left + right) / 2
+        // A compact retro header survives the slide/progress protection without covering the slide itself.
+        rainbow(c, "WELCOME!!", cx, 23 * d, minOf(15 * d, width / 12), t, d)
+        cat(c, right - 14 * d, 14 * d, d * .35f, t)
         cat(c, right - 31 * d, max(62 * d, room * .26f), d, t)
         val welcomeSize = minOf(32 * d, width / 10)
         rainbow(c, "WELCOME!!", cx, max(42 * d, room * .17f), welcomeSize * (1 + .08f * sin(t * 5)), t, d)

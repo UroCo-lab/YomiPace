@@ -12,21 +12,35 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class DopamineRenderingTest {
-    @Test fun openingIsSubstantiallyBrighterThanTheFrozen050Reference() {
-        val before = BitmapFactory.decodeStream(javaClass.getResourceAsStream("/dopamine-050-start.png"))!!
-        val after = Bitmap.createBitmap(360, 800, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.rgb(12,10,24)) }
+    @Test fun effectsGrowWithTimeAndARewindRestoresTheQuietRendering() {
+        val image = Bitmap.createBitmap(360, 800, Bitmap.Config.ARGB_8888)
         val engine = DopamineEngine({}, {})
-        engine.configure(true, false, true, true, DopamineLevel.at(0.0, 420.0))
-        DopamineRenderer().draw(Canvas(after), 360f,800f,1f,10_000,engine,
-            listOf(RectF(10f,205f,350f,275f),RectF(0f,423f,360f,800f)))
-        fun bright(bitmap: Bitmap): Int {
-            val p = IntArray(bitmap.width*bitmap.height); bitmap.getPixels(p,0,bitmap.width,0,0,bitmap.width,bitmap.height)
-            return p.count { maxOf(Color.red(it),Color.green(it),Color.blue(it)) > 150 }
+        val renderer = DopamineRenderer()
+        fun pixels(seconds: Double): IntArray {
+            image.eraseColor(Color.rgb(12,10,24))
+            engine.configure(true,false,true,true,DopamineLevel.at(seconds,100.0))
+            renderer.draw(Canvas(image),360f,800f,1f,10_000,engine,
+                listOf(RectF(10f,205f,350f,315f),RectF(0f,423f,360f,800f)))
+            return IntArray(360*800).also { image.getPixels(it,0,360,0,0,360,800) }
         }
-        val old = bright(before); val new = bright(after)
-        println("Opening bright pixels: 0.5.0=$old, 0.5.1=$new")
-        assertTrue("Opening did not become visibly stronger: $old -> $new", new > old * 2)
-        before.recycle(); after.recycle()
+        fun bright(p: IntArray) = p.count { maxOf(Color.red(it),Color.green(it),Color.blue(it)) > 50 }
+        val start=pixels(0.0); val middle=pixels(60.0); val end=pixels(99.0)
+        assertTrue(bright(start)<bright(middle)); assertTrue(bright(middle)<bright(end))
+        assertArrayEquals(start,pixels(0.0)); image.recycle()
+    }
+    @Test fun slideDecorationHasBoundedContrastAndNeverOverpaintsTheProgressPanel() {
+        val bitmap=Bitmap.createBitmap(360,800,Bitmap.Config.ARGB_8888)
+        val base=Color.rgb(120,130,140); bitmap.eraseColor(base)
+        val engine=DopamineEngine({},{}).apply { configure(true,true,true,true,DopamineLevel.at(99.0,100.0)); paragraph(1000) }
+        val progress=RectF(10f,205f,350f,315f)
+        DopamineRenderer().draw(Canvas(bitmap),360f,800f,1f,1100,engine,listOf(progress),listOf(RectF(5f,30f,355f,220f)))
+        for(y in 32..200) for(x in 7..352) {
+            val pixel=bitmap.getPixel(x,y)
+            for(channel in listOf<(Int)->Int>(Color::red,Color::green,Color::blue))
+                assertTrue("Slide obscured at $x,$y",kotlin.math.abs(channel(pixel)-channel(base))<=32)
+        }
+        for(y in 206..313) for(x in 11..348) assertEquals(base,bitmap.getPixel(x,y))
+        bitmap.recycle()
     }
     @Test fun allEffectsLeaveClockAndReaderPixelsUntouchedIncludingOverlaps() {
         for ((w, h) in listOf(360 to 800, 720 to 840, 840 to 360)) {

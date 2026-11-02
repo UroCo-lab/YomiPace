@@ -35,9 +35,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val store = DeckStore(decks)
     val clock = PresentationClock { SystemClock.elapsedRealtime() }
     private val haptics = ParagraphHaptics(application)
-    internal val dopamine = DopamineEngine(haptics::dopaminePulse, haptics::cancel)
+    internal val dopamine = DopamineEngine(haptics::dopaminePulse, haptics::cancel, haptics::dopamineBeat)
     var dopamineMode by mutableStateOf(prefs.getBoolean("dopamineMode", false)); private set
     var dopamineVibration by mutableStateOf(prefs.getBoolean("dopamineVibration", true)); private set
+    var dopamineBeat by mutableStateOf(prefs.getBoolean("dopamineBeat", true)); private set
+    var dopamineStrength by mutableIntStateOf(prefs.getInt("dopamineStrength", 100).coerceIn(30, 100)); private set
+    internal var dopamineRise by mutableStateOf(DopamineRise.saved(prefs.getString("dopamineRise", null))); private set
+    fun changeDopamineBeat(value: Boolean) { dopamineBeat = value; dopamine.reset(); dopamine.vibrationBeat = value; persist() }
+    fun changeDopamineStrength(value: Int) { dopamineStrength = value.coerceIn(30, 100); refreshDopamineLevel(); persist() }
+    internal fun changeDopamineRise(value: DopamineRise) { dopamineRise = value; refreshDopamineLevel(); persist() }
+    private fun refreshDopamineLevel() {
+        dopamine.configure(dopamineMode, dopamineVibration, dopamine.available, running,
+            DopamineLevel.at(elapsed, totalSeconds, dopamineStrength, dopamineRise), dopamineBeat)
+    }
     internal var effectsForeground by mutableStateOf(false); private set
     internal fun effectsForeground(value: Boolean) {
         effectsForeground = value
@@ -148,12 +158,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun pause() { val wasRunning = clock.running; clock.pause(); running = false; updateElapsed(wasRunning); dopamine.running = false; dopamine.reset(); persist() }
-    fun resetTime() { clock.reset(); running = false; elapsed = 0.0; paragraphSchedule?.seek(0.0); dopamine.running = false; dopamine.reset(); persist() }
+    fun resetTime() { clock.reset(); running = false; elapsed = 0.0; paragraphSchedule?.seek(0.0); dopamine.running = false; dopamine.reset(); refreshDopamineLevel(); persist() }
     fun seekTo(seconds: Double) {
         if (!seconds.isFinite() || timeline == null || busy) return
         clock.restorePaused((seconds.coerceAtLeast(0.0) * 1000).toLong())
         running = false; elapsed = clock.elapsedMillis / 1000.0
-        dopamine.running = false; dopamine.reset()
+        dopamine.running = false; dopamine.reset(); refreshDopamineLevel()
         paragraphSchedule?.seek(elapsed)
         persist()
     }
@@ -193,6 +203,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun persist() {
         prefs.edit().putInt("font", fontSize).putString("switchSeconds", switchSeconds.toString()).putBoolean("swapped", swapped)
             .putBoolean("dopamineMode", dopamineMode).putBoolean("dopamineVibration", dopamineVibration)
+            .putBoolean("dopamineBeat", dopamineBeat).putInt("dopamineStrength", dopamineStrength).putString("dopamineRise", dopamineRise.name)
             .putString("readerScrollbar", readerScrollbar.name)
             .putInt("totalFontSize", totalFontSize).putInt("elapsedFontSize", elapsedFontSize)
             .putInt("remainingFontSize", remainingFontSize).putString("totalClockColor", totalClockColor)

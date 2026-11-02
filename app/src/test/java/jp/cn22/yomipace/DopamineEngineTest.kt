@@ -25,17 +25,54 @@ class DopamineEngineTest {
         assertEquals(DopamineEngine.MAX_BURSTS, engine.bursts.size)
         engine.tick(100_000); assertEquals(0, engine.combo); assertTrue(engine.bursts.size <= 1)
     }
-    @Test fun startsWithVisibleEnergyAndContinuousBeatThenEscalates() {
+    @Test fun startsQuietlyWithContinuousBeatThenEscalates() {
         val opening = DopamineLevel.at(0.0, 420.0)
         val ending = DopamineLevel.at(415.0, 420.0)
-        assertTrue(opening.energy >= .4f); assertTrue(opening.beatMillis <= 900)
+        assertTrue(opening.energy <= .06f); assertTrue(opening.beatMillis in 800..850)
         assertTrue(ending.beatMillis < opening.beatMillis / 2)
         val pulses = mutableListOf<Float>()
         val engine = DopamineEngine({ pulses.add(it) }, {})
         engine.configure(true, true, true, true, opening)
         engine.tick(1000); engine.tick(2000)
         assertEquals(2, engine.bursts.size); assertEquals(1, pulses.size)
-        assertTrue(pulses.single() >= .4f)
+        assertTrue(pulses.single() <= .06f)
+    }
+    @Test fun rewindDropsEnergyClearsOldBurstsAndRestartsTheBeatWithoutCatchup() {
+        val pulses = mutableListOf<Float>()
+        val engine = DopamineEngine({ pulses.add(it) }, {})
+        engine.configure(true,true,true,true,DopamineLevel.at(99.0,100.0))
+        repeat(8) { engine.touch(1000L + 100 * it,.5f,.5f) }
+        engine.tick(1800); engine.tick(2200)
+        assertTrue(engine.bursts.isNotEmpty()); assertTrue(engine.combo > 0)
+        engine.configure(true,true,true,true,DopamineLevel.at(10.0,100.0))
+        assertTrue(engine.level.energy < .07f); assertEquals(0,engine.combo); assertTrue(engine.bursts.isEmpty())
+        val count = pulses.size
+        engine.tick(2500); assertEquals(count,pulses.size)
+        engine.tick(50_000); assertEquals(count+1,pulses.size)
+        assertTrue(pulses.last() < .07f)
+    }
+    @Test fun strengthAndRiseChangeTheCurveWithoutMakingTheOpeningLoud() {
+        for (rise in DopamineRise.entries) for (strength in listOf(30,60,100)) {
+            assertEquals(.05f,DopamineLevel.at(0.0,100.0,strength,rise).energy,.001f)
+            assertEquals(strength/100f,DopamineLevel.at(100.0,100.0,strength,rise).energy,.001f)
+        }
+        assertTrue(DopamineLevel.at(50.0,100.0,100,DopamineRise.SLOW).energy < DopamineLevel.at(50.0,100.0).energy)
+        assertTrue(DopamineLevel.at(50.0,100.0,100,DopamineRise.EARLY).energy > DopamineLevel.at(50.0,100.0).energy)
+    }
+    @Test fun beatHasFourBeatAccentsAndInteractionsDoNotInterruptIt() {
+        var touches = 0; val accents = mutableListOf<Boolean>()
+        val engine = DopamineEngine({ touches++ }, {}, { _, accent -> accents.add(accent) })
+        val level = DopamineLevel.at(50.0,100.0)
+        engine.configure(true,true,true,true,level)
+        engine.tick(1000)
+        repeat(8) { i ->
+            val now = 1000+(i+1)*level.beatMillis
+            engine.touch(now-10,.5f,.5f); engine.paragraph(now-5); engine.tick(now)
+        }
+        assertEquals(0,touches); assertEquals(listOf(true,false,false,false,true,false,false,false),accents)
+        engine.configure(true,true,true,true,level,false)
+        engine.tick(10_000); engine.tick(11_000); assertEquals(8,accents.size)
+        engine.touch(12_000,.5f,.5f); assertEquals(1,touches)
     }
     @Test fun comboJackpotAndParagraphCreateMultipleBurstsAndResetQuietly() {
         val engine = DopamineEngine({}, {})

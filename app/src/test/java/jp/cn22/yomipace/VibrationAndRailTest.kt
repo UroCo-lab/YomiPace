@@ -48,6 +48,19 @@ class VibrationAndRailTest {
         ParagraphHaptics(app).pulse(vm.vibrationEnabled, vm.vibrationStrength)
         assertEquals(24L, output.milliseconds)
     }
+    @Test fun experimentalPreferencesSurviveANewModelAndBeatIsAShortNonRepeatingPulse() {
+        val vm=model()
+        assertTrue(vm.dopamineBeat); assertEquals(100,vm.dopamineStrength); assertEquals(DopamineRise.STANDARD,vm.dopamineRise)
+        vm.changeDopamineStrength(60); vm.changeDopamineRise(DopamineRise.SLOW); vm.changeDopamineBeat(false)
+        val restored=model()
+        assertEquals(60,restored.dopamineStrength); assertEquals(DopamineRise.SLOW,restored.dopamineRise); assertFalse(restored.dopamineBeat)
+        val vibrator=app.getSystemService(VibratorManager::class.java).defaultVibrator
+        val output=shadowOf(vibrator); output.setHasVibrator(true); output.setHasAmplitudeControl(true)
+        ParagraphHaptics(app).dopamineBeat(1f,true)
+        assertEquals(34L,output.milliseconds)
+        ParagraphHaptics(app).dopamineBeat(.05f,false)
+        assertEquals(12L,output.milliseconds)
+    }
     @Test fun updateEnablesVibrationOnceThenRespectsSubsequentOffAndStrength() {
         // 0.5.0 explicitly repairs an OFF carried from earlier versions, once only.
         app.getSharedPreferences("yomipace", 0).edit().putBoolean("vibrationEnabled", false).putInt("vibrationStrength", 0).commit()

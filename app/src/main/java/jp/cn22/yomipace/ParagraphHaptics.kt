@@ -30,5 +30,14 @@ class ParagraphHaptics(context: Context) {
             else -> target.vibrate(VibrationEffect.createOneShot((8 + 22 * power).toLong(), amplitude))
         }
     }
+    fun dopamineBeat(energy: Float, accent: Boolean) {
+        val target = vibrator ?: return
+        if (!target.hasVibrator()) return
+        val power = energy.coerceIn(0f, 1f)
+        val amplitude = if (target.hasAmplitudeControl())
+            ((45 + 180 * power) * if (accent) 1f else .65f).toInt().coerceIn(1, 255)
+            else VibrationEffect.DEFAULT_AMPLITUDE
+        target.vibrate(VibrationEffect.createOneShot((12 + 16 * power + if (accent) 6 else 0).toLong(), amplitude))
+    }
     fun cancel() { vibrator?.cancel() }
 }
