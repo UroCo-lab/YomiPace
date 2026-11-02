@@ -69,8 +69,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var budgetProblem by mutableStateOf<String?>("メニューの「ZIPを開く」で資料を選択してください。")
 
     init {
+        // Capture first-install state before lifecycle callbacks can save ordinary defaults.
+        runCatching { WelcomeSample.prepare(application) } // IO initialization below retries and reports storage failures.
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
+                try { WelcomeSample.installIfNew(application) }
+                catch (_: Exception) { withContext(Dispatchers.Main) { message = "サンプル資料を準備できませんでした。次回起動時に再試行します。メニューの「ZIPを開く」も使用できます。" } }
                 val active = prefs.getString("active", null)
                 if (active != null && Regex("deck-[a-f0-9-]+").matches(active)) {
                     val dir = File(decks, active)

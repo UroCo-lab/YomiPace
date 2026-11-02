@@ -29,7 +29,7 @@ import jp.cn22.yomipace.core.*
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class AndroidBehaviorTest {
     private val app get() = ApplicationProvider.getApplicationContext<Application>()
-    @Before fun cleanPreferences() { app.getSharedPreferences("yomipace", 0).edit().clear().commit() }
+    @Before fun cleanPreferences() { app.getSharedPreferences("yomipace", 0).edit().clear().putBoolean(WelcomeSample.SETUP_COMPLETE, true).commit() }
     private fun pumpUntil(check: () -> Boolean) {
         val deadline = System.nanoTime() + 15_000_000_000L
         while (!check() && System.nanoTime() < deadline) { shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50)); Thread.sleep(20) }

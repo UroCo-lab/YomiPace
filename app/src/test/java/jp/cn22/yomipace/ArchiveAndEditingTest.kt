@@ -21,7 +21,7 @@ import java.time.Duration
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ArchiveAndEditingTest {
     private val app get() = ApplicationProvider.getApplicationContext<Application>()
-    @Before fun clean() { app.getSharedPreferences("yomipace", 0).edit().clear().commit(); File(app.filesDir, "decks").deleteRecursively() }
+    @Before fun clean() { app.getSharedPreferences("yomipace", 0).edit().clear().putBoolean(WelcomeSample.SETUP_COMPLETE, true).commit(); File(app.filesDir, "decks").deleteRecursively() }
     private fun waitFor(check: () -> Boolean) {
         val until = System.nanoTime() + 15_000_000_000L
         while (!check() && System.nanoTime() < until) { shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50)); Thread.sleep(10) }

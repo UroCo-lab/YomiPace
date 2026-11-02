@@ -22,7 +22,7 @@ class SettingsScrollTest {
     @get:Rule(order = 0) val cleanLaunch = object : org.junit.rules.ExternalResource() {
         override fun before() {
             androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
-                .getSharedPreferences("yomipace", 0).edit().clear().commit()
+                .getSharedPreferences("yomipace", 0).edit().clear().putBoolean(WelcomeSample.SETUP_COMPLETE, true).commit()
         }
     }
     @get:Rule(order = 1) val rule = createAndroidComposeRule<MainActivity>()
