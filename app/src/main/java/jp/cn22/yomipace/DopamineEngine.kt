@@ -47,6 +47,7 @@ internal class DopamineEngine(private val pulse: (Float) -> Unit, private val ca
     var enabled = false
     var vibration = true
     var vibrationBeat = true
+    var shade = 0
     var available = false
     var running = false
     var slideNumber = 1

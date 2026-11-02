@@ -43,7 +43,7 @@ class ComposeScreenTest {
     @org.junit.After fun stopPresentationBeforeClosingActivity() {
         rule.runOnIdle { ViewModelProvider(rule.activity)[AppViewModel::class.java].let {
             it.pause(); it.clear(); it.changeDopamineMode(false); it.changeDopamineVibration(true)
-            it.changeDopamineStrength(100); it.changeDopamineRise(DopamineRise.STANDARD); it.changeDopamineBeat(true)
+            it.changeDopamineShade(0); it.changeDopamineStrength(100); it.changeDopamineRise(DopamineRise.STANDARD); it.changeDopamineBeat(true)
         } }
     }
     private fun loadSample(): AppViewModel {
@@ -134,7 +134,7 @@ class ComposeScreenTest {
         rule.runOnIdle { assertFalse(vm.dopamineMode) }
         rule.onNodeWithText("⋮").performClick()
         rule.onNodeWithText("実験").performClick()
-        rule.onNodeWithContentDescription("ドパガキモード").performClick()
+        rule.onNodeWithContentDescription("DOPAGAKIモード").performClick()
         rule.onNodeWithText("閉じる").performClick()
         rule.onNodeWithTag("dopamine-effects").assertExists()
         rule.runOnIdle { assertTrue(vm.dopamineMode); assertTrue(vm.dopamineVibration) }
@@ -183,17 +183,19 @@ class ComposeScreenTest {
     @Test fun experimentStrengthRiseAndBeatCanBeChangedInSettingsAndPersist() {
         val vm=loadSample()
         rule.onNodeWithText("⋮").performClick(); rule.onNodeWithText("実験").performClick()
-        rule.onNodeWithContentDescription("ドパガキモード").performClick()
+        rule.onNodeWithContentDescription("DOPAGAKIモード").performClick()
         rule.onNodeWithContentDescription("演出の強さ").performScrollTo()
             .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(60f) }
+        rule.onNodeWithContentDescription("演出のシェード").performScrollTo()
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(30f) }
         rule.onNodeWithText("じわじわ").performScrollTo().performClick()
         rule.onNodeWithContentDescription("振動ビート").performScrollTo().performClick()
         rule.onNodeWithText("閉じる").performClick()
-        rule.runOnIdle { assertEquals(60,vm.dopamineStrength); assertEquals(DopamineRise.SLOW,vm.dopamineRise); assertFalse(vm.dopamineBeat) }
+        rule.runOnIdle { assertEquals(30,vm.dopamineShade); assertEquals(60,vm.dopamineStrength); assertEquals(DopamineRise.SLOW,vm.dopamineRise); assertFalse(vm.dopamineBeat) }
         rule.activityRule.scenario.recreate()
         rule.runOnIdle {
             val restored=ViewModelProvider(rule.activity)[AppViewModel::class.java]
-            assertEquals(60,restored.dopamineStrength); assertEquals(DopamineRise.SLOW,restored.dopamineRise); assertFalse(restored.dopamineBeat)
+            assertEquals(30,restored.dopamineShade); assertEquals(60,restored.dopamineStrength); assertEquals(DopamineRise.SLOW,restored.dopamineRise); assertFalse(restored.dopamineBeat)
         }
     }
 
@@ -208,7 +210,9 @@ class ComposeScreenTest {
         screenshot("dopamine-$name-spark")
         rule.runOnIdle { vm.seekTo(410.0); vm.play() }
         screenshot("dopamine-$name-climax")
-        rule.runOnIdle { assertTrue(vm.dopamine.level.energy > .9f); vm.pause() }
+        rule.runOnIdle { vm.changeDopamineShade(70) }
+        screenshot("dopamine-$name-shade70")
+        rule.runOnIdle { vm.changeDopamineShade(0); assertTrue(vm.dopamine.level.energy > .9f); vm.pause() }
         if (fold) {
             rule.onNodeWithText("⇄").performClick(); waitForImages()
             rule.runOnIdle { vm.seekTo(410.0); vm.play() }

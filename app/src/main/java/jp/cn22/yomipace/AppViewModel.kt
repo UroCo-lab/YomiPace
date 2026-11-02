@@ -40,6 +40,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var dopamineVibration by mutableStateOf(prefs.getBoolean("dopamineVibration", true)); private set
     var dopamineBeat by mutableStateOf(prefs.getBoolean("dopamineBeat", true)); private set
     var dopamineStrength by mutableIntStateOf(prefs.getInt("dopamineStrength", 100).coerceIn(30, 100)); private set
+    var dopamineShade by mutableIntStateOf(prefs.getInt("dopamineShade", 0).coerceIn(0, 100)); private set
+    fun changeDopamineShade(value: Int) { dopamineShade = value.coerceIn(0, 100); dopamine.shade = dopamineShade; persist() }
     internal var dopamineRise by mutableStateOf(DopamineRise.saved(prefs.getString("dopamineRise", null))); private set
     fun changeDopamineBeat(value: Boolean) { dopamineBeat = value; dopamine.reset(); dopamine.vibrationBeat = value; persist() }
     fun changeDopamineStrength(value: Int) { dopamineStrength = value.coerceIn(30, 100); refreshDopamineLevel(); persist() }
@@ -204,6 +206,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putInt("font", fontSize).putString("switchSeconds", switchSeconds.toString()).putBoolean("swapped", swapped)
             .putBoolean("dopamineMode", dopamineMode).putBoolean("dopamineVibration", dopamineVibration)
             .putBoolean("dopamineBeat", dopamineBeat).putInt("dopamineStrength", dopamineStrength).putString("dopamineRise", dopamineRise.name)
+            .putInt("dopamineShade", dopamineShade)
             .putString("readerScrollbar", readerScrollbar.name)
             .putInt("totalFontSize", totalFontSize).putInt("elapsedFontSize", elapsedFontSize)
             .putInt("remainingFontSize", remainingFontSize).putString("totalClockColor", totalClockColor)

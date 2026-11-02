@@ -12,6 +12,31 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class DopamineRenderingTest {
+    @Test fun shadeCanRestoreFullNeonColorsWithoutChangingTheTimeline() {
+        val bitmap=Bitmap.createBitmap(360,800,Bitmap.Config.ARGB_8888)
+        val engine=DopamineEngine({},{}).apply { configure(true,false,true,true,DopamineLevel.at(99.0,100.0)) }
+        val renderer=DopamineRenderer(); val original=engine.level
+        fun vivid(shade: Int): Int {
+            bitmap.eraseColor(Color.BLACK);engine.shade=shade
+            renderer.draw(Canvas(bitmap),360f,800f,1f,10_000,engine,emptyList())
+            val pixels=IntArray(360*800);bitmap.getPixels(pixels,0,360,0,0,360,800)
+            return pixels.count { maxOf(Color.red(it),Color.green(it),Color.blue(it))>220 }
+        }
+        val bright=vivid(0);val dim=vivid(100)
+        assertTrue("Neon colors are still dimmed",bright>1000);assertEquals(0,dim)
+        assertEquals(original,engine.level);bitmap.recycle()
+    }
+    @Test fun beckoningCatRemainsVisibleBetweenSlidesProgressAndReaderEvenAtTheOpening() {
+        val image=Bitmap.createBitmap(360,800,Bitmap.Config.ARGB_8888)
+        val engine=DopamineEngine({},{}).apply { configure(true,false,true,true,DopamineLevel.at(0.0,100.0)) }
+        DopamineRenderer().draw(Canvas(image),360f,800f,1f,10_000,engine,
+            listOf(RectF(10f,205f,350f,360f),RectF(0f,423f,360f,800f)),
+            listOf(RectF(8f,35f,352f,196f)))
+        var catPixels=0
+        for(y in 361..422) for(x in 290..355) if(image.getPixel(x,y)==0xFFFFCF40.toInt())catPixels++
+        assertTrue("Cat clipped away by the slide/reader protection",catPixels>150)
+        image.recycle()
+    }
     @Test fun effectsGrowWithTimeAndARewindRestoresTheQuietRendering() {
         val image = Bitmap.createBitmap(360, 800, Bitmap.Config.ARGB_8888)
         val engine = DopamineEngine({}, {})

@@ -6,6 +6,8 @@ import kotlin.math.*
 /** The root decoration excludes clocks and reader foreground; the reader draws its own background. */
 internal class DopamineRenderer {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val shadePaint = Paint()
+    private var lastShade = -1
     private val path = Path()
     private val clip = Path()
     private val groups = Array(6) { Path() }
@@ -17,6 +19,17 @@ internal class DopamineRenderer {
     private var clipWidth = -1f
     private var clipHeight = -1f
     private var clipWindows: List<RectF> = emptyList()
+
+    private fun shadeLayer(c: Canvas, w: Float, h: Float, shade: Int, alpha: Int = 255): Int {
+        val value = shade.coerceIn(0, 100)
+        if (lastShade != value) {
+            val light = (255 * (1 - .85f * value / 100)).roundToInt()
+            shadePaint.colorFilter = if (value == 0) null else LightingColorFilter(Color.rgb(light, light, light), 0)
+            lastShade = value
+        }
+        shadePaint.alpha = alpha
+        return c.saveLayer(0f, 0f, w, h, shadePaint)
+    }
 
     private fun ink(color: Int, alpha: Float = 1f, stroke: Float = 0f) {
         paint.shader = null; paint.color = color; paint.alpha = (alpha.coerceIn(0f, 1f) * 255).toInt()
@@ -42,7 +55,7 @@ internal class DopamineRenderer {
         val saved = canvas.save(); canvas.clipPath(clip)
         val t = (now % 120_000L) / 1000f
         val e = if (engine.running) engine.level.energy else .08f
-        canvas.saveLayerAlpha(0f, 0f, width, height, (255 * e).toInt())
+        shadeLayer(canvas, width, height, engine.shade)
         val reader = protected.maxByOrNull { it.height() }
         val split = reader != null && reader.width() < width * .75f
         val left = if (split && reader!!.centerX() < width / 2) reader.right else 0f
@@ -52,7 +65,7 @@ internal class DopamineRenderer {
             .minOfOrNull { it.top } ?: (height * .42f)
         val cy = minOf(height * .24f, topRoom * .60f)
         if (engine.running) {
-            ink(0xFF080014.toInt(), .60f + .14f * e); canvas.drawRect(0f, 0f, width, height, paint)
+            ink(0xFF080014.toInt(), .74f * e); canvas.drawRect(0f, 0f, width, height, paint)
             field(canvas, width, height, density, t, e, cx, cy, false)
             frame(canvas, width, height, density, t, e)
         }
@@ -62,6 +75,15 @@ internal class DopamineRenderer {
             retro(canvas, left, right, topRoom, density, t, e, now, engine)
             canvas.restoreToCount(retroSave)
         }
+        if (engine.running && reader != null) {
+            val above = protected.filter { it.bottom <= reader.top + 1 && it.right > reader.left && it.left < reader.right }
+                .maxOfOrNull { it.bottom } ?: 0f
+            val gap = reader.top - above
+            if (gap >= 30 * density) {
+                val scale = minOf(density, (gap - 6 * density) / 56)
+                cat(canvas, reader.right - 32 * density, above + gap * .47f, scale, t * (.4f + e))
+            }
+        }
         canvas.restoreToCount(saved)
         // Slides retain their real content and number: only a faint, bounded accent, never slogans or bursts.
         if (engine.running && slides.isNotEmpty()) {
@@ -69,7 +91,7 @@ internal class DopamineRenderer {
             slides.forEach { r -> path.reset(); path.addRect(r, Path.Direction.CW); slideClip.op(path, Path.Op.UNION) }
             protected.forEach { r -> path.reset(); path.addRect(r, Path.Direction.CW); slideClip.op(path, Path.Op.DIFFERENCE) }
             val slideSave = canvas.save(); canvas.clipPath(slideClip)
-            canvas.saveLayerAlpha(0f, 0f, width, height, (255 * (.02f + .10f * e)).toInt())
+            shadeLayer(canvas, width, height, engine.shade, (255 * (.02f + .10f * e)).toInt())
             field(canvas, width, height, density, t, e, cx, cy, false)
             canvas.restoreToCount(slideSave)
         }
@@ -82,27 +104,28 @@ internal class DopamineRenderer {
         val e = if (engine.running) engine.level.energy else .08f
         val saved = canvas.save(); canvas.clipRect(0f, 0f, width, height)
         ink(0xFF09031B.toInt()); canvas.drawRect(0f, 0f, width, height, paint)
-        canvas.saveLayerAlpha(0f, 0f, width, height, (255 * (.12f + .88f * e)).toInt())
+        shadeLayer(canvas, width, height, engine.shade)
         field(canvas, width, height, density, t, e, width * .5f, height * .35f, true)
+        if (engine.running) homepage(canvas, width, density, t, e, engine)
         canvas.restoreToCount(saved)
     }
 
     private fun field(c: Canvas, w: Float, h: Float, d: Float, t: Float, e: Float, cx: Float, cy: Float, reader: Boolean) {
-        val cell = (if (reader) 34 else 42) * d
+        val cell = (100 - (if (reader) 66 else 58) * e) * d
         // Tiled neon wallpaper, reminiscent of early personal homepages.
         for (group in groups) group.reset()
         val columns = (w / cell).toInt() + 2; val lines = (h / cell).toInt() + 2
         for (y in 0..lines) for (x in 0..columns) {
             val px = x * cell + sin(t * .7f + y) * 5 * d
             val py = y * cell + cos(t * .5f + x) * 5 * d
-            val arm = (2 + 3 * e) * d
+            val arm = (.4f + 4.6f * e) * d
             val p = groups[(x + y * 3).mod(6)]
             p.moveTo(px - arm, py); p.lineTo(px + arm, py)
             p.moveTo(px, py - arm); p.lineTo(px, py + arm)
         }
         groups.forEachIndexed { i, p -> ink(palette[i], .4f + .35f * e, d); c.drawPath(p, paint) }
         // Broad moving ribbons supply energy without full-screen flashes.
-        repeat(6) { i ->
+        repeat((6 * e * e).roundToInt()) { i ->
             path.reset()
             for (j in 0..26) {
                 val x = w * j / 26f
@@ -112,13 +135,13 @@ internal class DopamineRenderer {
             ink(palette[i], if (reader) .30f else .42f, (12 + 15 * e) * d); c.drawPath(path, paint)
             ink(palette[i], .75f, (1 + e * 2) * d); c.drawPath(path, paint)
         }
-        val rays = (if (reader) 36 + 52 * e else 70 + 110 * e).toInt()
+        val rays = (if (reader) 3 + 85 * e * e else 4 + 176 * e * e).toInt()
         for (group in groups) group.reset()
         repeat(rays) { i ->
             val a = i * 2.399963f + t * (.13f + e * .32f)
             val phase = (t * (.8f + e * 1.6f) + i * .137f) % 1
             val r = min(w, h) * (.02f + .72f * phase)
-            val len = (24 + 100 * e) * d * (.4f + phase)
+            val len = (4 + 120 * e) * d * (.4f + phase)
             val p = groups[i.mod(6)]
             p.moveTo(cx + cos(a) * r, cy + sin(a) * r)
             p.lineTo(cx + cos(a) * (r + len), cy + sin(a) * (r + len))
@@ -127,7 +150,7 @@ internal class DopamineRenderer {
             ink(palette[i], if (reader) .22f else .26f, (6 + e * 5) * d); c.drawPath(p, paint)
             ink(palette[i], if (reader) .65f else .95f, (1 + e * 1.5f) * d); c.drawPath(p, paint)
         }
-        repeat(if (reader) 3 else 7) { i ->
+        repeat(((if (reader) 3 else 7) * e * e).roundToInt()) { i ->
             val phase = (t * (.45f + e * .4f) + i / 7f) % 1
             val radius = min(w, h) * (.12f + phase * .95f)
             val color = palette[i.mod(6)]
@@ -135,10 +158,10 @@ internal class DopamineRenderer {
             ink(color, (1 - phase) * .95f, 2 * d); c.drawCircle(cx, cy, radius, paint)
         }
         for (group in groups) group.reset()
-        repeat((if (reader) 38 + 62 * e else 85 + 155 * e).toInt()) { i ->
+        repeat((if (reader) 2 + 98 * e * e else 3 + 237 * e * e).toInt()) { i ->
             val x = (((i * .618034f + sin(t * 1.8f + i) * .055f) % 1) + 1) % 1 * w
             val y = (i * .3791f + t * (.08f + .32f * e)) % 1 * h
-            val r = (2 + i % 4 + e * 3) * d
+            val r = (.7f + i % 3 + e * 3) * d
             val a = t * (2 + e * 3) + i
             val dx = cos(a) * r; val dy = sin(a) * r
             val p = groups[i.mod(6)]
@@ -147,7 +170,7 @@ internal class DopamineRenderer {
         }
         groups.forEachIndexed { i, p -> ink(palette[i], if (reader) .75f else 1f, (2 + e) * d); c.drawPath(p, paint) }
         // Zig-zag lightning around the field.
-        repeat(if (reader) 2 else 5) { i ->
+        repeat(((if (reader) 2 else 5) * ((e - .55f) / .45f).coerceIn(0f, 1f)).roundToInt()) { i ->
             path.reset()
             val center = if (i == 0) 10 * d else if (i == 1) w - 10 * d else w * (i - 1) / 4
             for (j in 0..22) {
@@ -161,7 +184,7 @@ internal class DopamineRenderer {
     }
 
     private fun frame(c: Canvas, w: Float, h: Float, d: Float, t: Float, e: Float) {
-        repeat(8) { i ->
+        repeat((8 * e).roundToInt()) { i ->
             val inset = (2 + i * 2) * d
             ink(palette[(i + (t * 3).toInt()).mod(6)], .85f / (1 + i * .08f), (3 + e * 4) * d)
             c.drawRoundRect(inset, inset, w - inset, h - inset, 12 * d, 12 * d, paint)
@@ -184,7 +207,7 @@ internal class DopamineRenderer {
                 }
             }
             val special = b.kind == DopamineBurstKind.JACKPOT || b.kind == DopamineBurstKind.PARAGRAPH
-            val radius = age * (80 + 180 * b.power) * d
+            val radius = age * (20 + 240 * b.power) * d
             ink(palette[b.seed.mod(6)], alpha * .25f, (10 + 12 * b.power) * d); c.drawCircle(x, y, radius, paint)
             ink(Color.WHITE, alpha, 2 * d); c.drawCircle(x, y, radius, paint)
             path.reset()
@@ -192,7 +215,7 @@ internal class DopamineRenderer {
                 val a = i * 2.399963f + b.seed
                 val distance = radius * (.3f + i % 7 / 7f)
                 val sx = x + cos(a) * distance; val sy = y + sin(a) * distance + age * age * 60 * d
-                val arm = (2 + b.power * 6) * d * alpha
+                val arm = (.5f + b.power * 7.5f) * d * alpha
                 path.moveTo(sx - arm, sy); path.lineTo(sx + arm, sy)
                 path.moveTo(sx, sy - arm); path.lineTo(sx, sy + arm)
             }
@@ -213,7 +236,7 @@ internal class DopamineRenderer {
             engine.level.title == "OVER DRIVE" -> "超☆覚☆醒"
             e > .95f -> "限界突破!!"
             e > .75f -> "爆熱FEVER!!"
-            else -> "ドパッ!!"
+            else -> "DOPA!!"
         }
         val n = c.save(); c.rotate(sin(t * 7) * (1 + e * 3), cx, headlineY)
         label(c, headline, cx, headlineY, minOf((39 + e * 20) * d, width / 6), palette[(t * 3).toInt().mod(6)], d)
@@ -225,7 +248,7 @@ internal class DopamineRenderer {
         bevel(c, box, 0xFF080008.toInt(), d)
         val saved = c.save(); c.clipRect(box.left + 3 * d, box.top + 3 * d, box.right - 3 * d, box.bottom - 3 * d)
         paint.typeface = bold; paint.textSize = 13 * d; paint.textAlign = Paint.Align.LEFT
-        val message = "★ 熱烈歓迎 ★ ドパガキ発表会 ★ ただいま限界突破中 ★ NO SOUND / ALL DOPA ★ "
+        val message = "★ 熱烈歓迎 ★ DOPAGAKI発表会 ★ ただいま限界突破中 ★ NO SOUND / ALL DOPA ★ "
         val period = paint.measureText(message) + 30 * d
         val x = box.left - (t * (55 + e * 85) * d) % period
         ink(palette[(t * 2).toInt().mod(6)])
@@ -248,8 +271,41 @@ internal class DopamineRenderer {
         celebration?.let {
             val age = (now - it.time) / 800f
             val y = max(count.bottom + 30 * d, room * 1.4f) - age * 20 * d
-            label(c, if (it.kind == DopamineBurstKind.JACKPOT) "ドパ大爆発!!" else "段落完了!!!", cx, y,
+            label(c, if (it.kind == DopamineBurstKind.JACKPOT) "DOPA大爆発!!" else "段落完了!!!", cx, y,
                 minOf((30 + 12 * sin(age * PI).toFloat()) * d, width / 7), palette[it.seed.mod(6)], d)
+        }
+    }
+
+    /** Background-only homepage toys; the reader paints its opaque glyphs and line plates afterwards. */
+    private fun homepage(c: Canvas, w: Float, d: Float, t: Float, e: Float, engine: DopamineEngine) {
+        cat(c, w - 38 * d, 35 * d, .85f * d, t * (.35f + e))
+        if (e < .15f) return
+        val right = (w - 80 * d).coerceAtLeast(80 * d)
+        rainbow(c, "★ DOPAのホームページ ★", right / 2 + 7 * d, 19 * d,
+            minOf(13 * d, right / 17), t, d)
+        val counter = RectF(12 * d, 27 * d, right, 47 * d)
+        bevel(c, counter, Color.BLACK, d)
+        paint.typeface = mono; paint.textSize = minOf(11 * d, right / 22); paint.textAlign = Paint.Align.CENTER
+        ink(0xFF39FF65.toInt())
+        c.drawText("DOPA COUNTER " + (engine.level.progress * 9999).toInt().toString().padStart(6, '0'),
+            counter.centerX(), 41 * d, paint)
+        if (e < .30f) return
+        val sign = RectF(12 * d, 54 * d, minOf(right, 114 * d), 73 * d)
+        ink(0xFFFFFF00.toInt()); c.drawRect(sign, paint)
+        val stripe = c.save(); c.clipRect(sign)
+        ink(Color.BLACK, 1f, 4 * d)
+        for (i in -2..14) c.drawLine(sign.left + i * 12 * d, sign.bottom, sign.left + (i + 1) * 12 * d, sign.top, paint)
+        c.restoreToCount(stripe)
+        label(c, "工事中", sign.centerX(), 69 * d, 13 * d, Color.YELLOW, d)
+        paint.typeface = bold; paint.textAlign = Paint.Align.LEFT; paint.textSize = minOf(11 * d, right / 24)
+        ink(0xFF00EEFF.toInt()); c.drawText("相互リンク募集中", 12 * d, 91 * d, paint)
+        ink(0xFFFF17C8.toInt()); c.drawText("<< 前へ  WebRing  次へ >>", 12 * d, 108 * d, paint)
+        if (e < .55f) return
+        ink(Color.YELLOW); c.drawText("Sorry, Japanese only!", 12 * d, 125 * d, paint)
+        ink(Color.WHITE); c.drawText(if (engine.level.progress >= .9) "キリ番GET!! BBSへ報告☆" else "足あとBBS / 踏み逃げ厳禁☆", 12 * d, 142 * d, paint)
+        if (e >= .75f) {
+            paint.textAlign = Paint.Align.RIGHT; paint.textSize = 9 * d
+            ink(0xFF39FF65.toInt()); c.drawText("推奨 800x600 / DOPA 6.0", w - 8 * d, 159 * d, paint)
         }
     }
 

@@ -51,4 +51,15 @@ class DopamineReaderTest {
             engine.configure(true,true,false,true,engine.level);assertArrayEquals(baseline,draw(reader))
         }
     }
+    @Test fun shadeChangesBackgroundColorsWhileForegroundTextAndAnchorStayUnchanged() {
+        val reader=reader();val anchor=reader.logicalAnchorForTest()
+        val engine=DopamineEngine({},{}).apply { configure(true,false,true,true,DopamineLevel.at(119.0,120.0)) }
+        reader.bindDopamine(engine) { 10_000L }
+        engine.shade=0;val bright=draw(reader)
+        engine.shade=100;val dim=draw(reader)
+        val ink=Color.rgb(250,253,255);val glyph=bright.indices.filter { bright[it]==ink }
+        assertTrue(glyph.size>200);glyph.forEach { assertEquals(ink,dim[it]) }
+        assertTrue(bright.indices.count { bright[it]!=dim[it] }>3000)
+        assertEquals(anchor,reader.logicalAnchorForTest())
+    }
 }

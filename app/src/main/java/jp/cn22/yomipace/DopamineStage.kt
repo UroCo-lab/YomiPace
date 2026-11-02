@@ -41,6 +41,7 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
         engine.configure(enabled, vm.dopamineVibration, available, vm.running,
             DopamineLevel.at(vm.elapsed, vm.totalSeconds, vm.dopamineStrength, vm.dopamineRise), vm.dopamineBeat)
         engine.slideNumber = vm.currentSlide; engine.slideCount = vm.deck?.images?.size ?: 0
+        engine.shade = vm.dopamineShade
     }
     DisposableEffect(engine) { onDispose { engine.reset(); engine.available = false } }
     val frameTime = remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
@@ -82,10 +83,10 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
         SettingsScrollPane(androidx.compose.foundation.rememberScrollState()) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("ドパガキモード")
+                    Text("DOPAGAKIモード")
                     Text("無音・振動とエフェクトで盛り上げる")
                 }
-                Switch(vm.dopamineMode, vm::changeDopamineMode, Modifier.semantics { contentDescription = "ドパガキモード" })
+                Switch(vm.dopamineMode, vm::changeDopamineMode, Modifier.semantics { contentDescription = "DOPAGAKIモード" })
             }
             Text("序盤は小さな火花から。経過時間に合わせて虹色WELCOME・招き猫・花火・稲妻が増え、終盤に向けて盛り上がります。時間を巻き戻すとコンボと花火をリセットし、その時点の強さへ戻ります。原稿を手でスクロールしても演出の段階は変わりません。")
             Spacer(Modifier.height(12.dp))
@@ -94,6 +95,11 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
                 valueRange = 30f..100f, steps = 6, enabled = vm.dopamineMode,
                 modifier = Modifier.semantics { contentDescription = "演出の強さ" })
             Text("終盤の最大の派手さを調整します。序盤はどの設定でも控えめです。")
+            Text("演出のシェード：${vm.dopamineShade}%")
+            Slider(value = vm.dopamineShade.toFloat(), onValueChange = { vm.changeDopamineShade(it.roundToInt()) },
+                valueRange = 0f..100f, steps = 9, enabled = vm.dopamineMode,
+                modifier = Modifier.semantics { contentDescription = "演出のシェード" })
+            Text("0%は原色くっきり、100%は暗め。色の暗さだけを調整し、盛り上がる速さは変えません。原稿の文字下地と時計・進捗バーの保護は維持します。")
             Text("盛り上がる速さ：${vm.dopamineRise.label}")
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 DopamineRise.entries.forEach { rise ->
@@ -112,7 +118,7 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
                     enabled = vm.dopamineMode && vm.dopamineVibration)
             }
             Text("振動ビートON：72→180 BPMで加速し、4拍ごとに強拍を刻みます。タッチや段落完了の振動を重ねず、リズムを保ちます。OFF：タッチ・段落完了だけ振動します。「演出の振動」をOFFにすると両方止まります。")
-            Text("このモード専用の設定です。「グレー表示のバイブ」とは別に保存します。原稿の文字・赤線・段落の進捗は従来どおり最前面へ。時計・進捗バーには演出を重ねず、スライド上は薄い装飾だけにします。音は鳴りません。停止中は小さなタッチ反応だけ、設定画面・バックグラウンドでは休止します。選んだ強さ・速さ・ビート設定は再起動後も保持します。")
+            Text("招き猫、キリ番カウンター、工事中、相互リンク、WebRing、BBS、Sorry, Japanese only!で個人ホームページの時代へ。カウンターやリンクは遊びの表示です。原稿の文字・赤線・段落の進捗は従来どおり最前面へ。時計・進捗バーには演出を重ねず、スライド上は薄い装飾だけ。アプリは無音。停止中は小さなタッチ反応だけ、設定画面・バックグラウンドでは休止します。強さ・シェード・速さ・ビート設定は再起動後も保持します。")
         }
     }, confirmButton = { TextButton(onClick = dismiss) { Text("閉じる") } })
 }

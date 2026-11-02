@@ -50,10 +50,10 @@ class VibrationAndRailTest {
     }
     @Test fun experimentalPreferencesSurviveANewModelAndBeatIsAShortNonRepeatingPulse() {
         val vm=model()
-        assertTrue(vm.dopamineBeat); assertEquals(100,vm.dopamineStrength); assertEquals(DopamineRise.STANDARD,vm.dopamineRise)
-        vm.changeDopamineStrength(60); vm.changeDopamineRise(DopamineRise.SLOW); vm.changeDopamineBeat(false)
+        assertEquals(0,vm.dopamineShade); assertTrue(vm.dopamineBeat); assertEquals(100,vm.dopamineStrength); assertEquals(DopamineRise.STANDARD,vm.dopamineRise)
+        vm.changeDopamineShade(70); vm.changeDopamineStrength(60); vm.changeDopamineRise(DopamineRise.SLOW); vm.changeDopamineBeat(false)
         val restored=model()
-        assertEquals(60,restored.dopamineStrength); assertEquals(DopamineRise.SLOW,restored.dopamineRise); assertFalse(restored.dopamineBeat)
+        assertEquals(70,restored.dopamineShade); assertEquals(60,restored.dopamineStrength); assertEquals(DopamineRise.SLOW,restored.dopamineRise); assertFalse(restored.dopamineBeat)
         val vibrator=app.getSystemService(VibratorManager::class.java).defaultVibrator
         val output=shadowOf(vibrator); output.setHasVibrator(true); output.setHasAmplitudeControl(true)
         ParagraphHaptics(app).dopamineBeat(1f,true)
