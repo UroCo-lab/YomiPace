@@ -8,7 +8,6 @@ import android.view.MotionEvent
 import android.widget.SeekBar
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -90,7 +89,7 @@ internal class TimeSeekView(context: Context, private val vm: AppViewModel) : Se
         return
     }
     AlertDialog(onDismissRequest = dismiss, title = { Text("表示・操作設定") }, text = {
-        Column(Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(settingsScroll)) {
+        SettingsScrollPane(settingsScroll) {
             Text("原稿スクロールバー")
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 ReaderScrollbarPosition.entries.forEach { position ->
