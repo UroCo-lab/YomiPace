@@ -1,10 +1,12 @@
 package jp.cn22.yomipace
 
 import kotlin.math.pow
+import kotlin.math.sin
+import kotlin.math.PI
 
 /** Presentation progress alone drives escalation; manual reading position never changes it. */
 internal enum class DopamineRise(val label: String, val exponent: Double) {
-    SLOW("じわじわ", 3.2), STANDARD("標準", 2.0), EARLY("早め", 1.2);
+    SLOW("後半型", 2.0), STANDARD("標準", 1.0), EARLY("前半型", .5);
     companion object { fun saved(value: String?) = entries.find { it.name == value } ?: STANDARD }
 }
 
@@ -28,9 +30,17 @@ internal data class DopamineLevel(val energy: Float, val title: String, val beat
     }
 }
 
-internal enum class DopamineBurstKind { TOUCH, BEAT, PARAGRAPH, JACKPOT }
+internal enum class DopamineBurstKind { TOUCH, BEAT, PARAGRAPH, JACKPOT, POPPER, BALLOON, FIREWORK }
+internal data class DopamineRegion(val left: Float, val top: Float, val width: Float, val height: Float)
 internal data class DopamineBurst(val time: Long, val x: Float, val y: Float, val power: Float, val seed: Int,
-    val kind: DopamineBurstKind = DopamineBurstKind.TOUCH)
+    val kind: DopamineBurstKind = DopamineBurstKind.TOUCH) {
+    val lifetime: Long get() = when (kind) {
+        DopamineBurstKind.BALLOON -> 4500L
+        DopamineBurstKind.FIREWORK -> 2800L
+        DopamineBurstKind.POPPER -> 1900L
+        else -> DopamineEngine.BURST_LIFETIME
+    }
+}
 
 /** Bounded transient state. All calls occur on the main thread; no saved scores or sound. */
 internal class DopamineEngine(private val pulse: (Float) -> Unit, private val cancel: () -> Unit,
@@ -40,20 +50,25 @@ internal class DopamineEngine(private val pulse: (Float) -> Unit, private val ca
     var lastInteraction = Long.MIN_VALUE; private set
     private var lastPulse = Long.MIN_VALUE
     private var lastTouch = Long.MIN_VALUE
+    private var lastPartyTouch = Long.MIN_VALUE
     private var nextBeat = 0L
     private var beatIndex = 0
+    private var lastBeatAt = Long.MIN_VALUE
     private var serial = 0
     var level = DopamineLevel.at(0.0, null)
     var enabled = false
     var vibration = true
     var vibrationBeat = true
     var shade = 0
+    var readerRegion: DopamineRegion? = null
     var available = false
     var running = false
     var slideNumber = 1
     var slideCount = 0
     companion object { const val MAX_BURSTS = 32; const val BURST_LIFETIME = 1400L }
     private fun age(now: Long, before: Long) = if (before == Long.MIN_VALUE) Long.MAX_VALUE else now - before
+    fun beatHop(now: Long): Float = if (!running || lastBeatAt == Long.MIN_VALUE) 0f else
+        sin(PI * (age(now,lastBeatAt).toDouble()/level.beatMillis).coerceIn(0.0,1.0)).toFloat().coerceAtLeast(0f)
 
     fun configure(enabled: Boolean, vibration: Boolean, available: Boolean, running: Boolean, level: DopamineLevel,
                   vibrationBeat: Boolean = true) {
@@ -71,6 +86,12 @@ internal class DopamineEngine(private val pulse: (Float) -> Unit, private val ca
         lastTouch = now
         lastInteraction = now
         burst(now, x, y, if (running) level.energy else .10f)
+        if (running && age(now, lastPartyTouch) >= 360) {
+            burst(now, x, y, level.energy, DopamineBurstKind.POPPER)
+            burst(now, x, y, level.energy, DopamineBurstKind.BALLOON)
+            if (level.energy >= .55f) burst(now, x, y, level.energy, DopamineBurstKind.FIREWORK)
+            lastPartyTouch = now
+        }
         if (running && combo % 8 == 0) {
             burst(now, 1 - x, .17f, level.energy, DopamineBurstKind.JACKPOT)
             burst(now, .5f, .45f, level.energy, DopamineBurstKind.JACKPOT)
@@ -83,20 +104,27 @@ internal class DopamineEngine(private val pulse: (Float) -> Unit, private val ca
         burst(now, .5f, .18f, level.energy, DopamineBurstKind.PARAGRAPH)
         burst(now, .10f, .40f, level.energy, DopamineBurstKind.PARAGRAPH)
         burst(now, .90f, .40f, level.energy, DopamineBurstKind.PARAGRAPH)
+        burst(now, .08f, .92f, level.energy, DopamineBurstKind.POPPER)
+        burst(now, .92f, .92f, level.energy, DopamineBurstKind.POPPER)
         lastInteraction = now
         if (!vibrationBeat) vibrate(now, level.energy)
     }
 
     fun tick(now: Long) {
-        while (bursts.isNotEmpty() && now - bursts.first().time > BURST_LIFETIME) bursts.removeFirst()
+        bursts.removeAll { now - it.time > it.lifetime }
         if (age(now, lastTouch) > 1800) combo = 0
         if (!enabled || !available || !running) { nextBeat = 0; return }
         if (nextBeat == 0L) { nextBeat = now + level.beatMillis; return }
         if (now >= nextBeat) {
             burst(now, .10f, .18f, level.energy, DopamineBurstKind.BEAT)
             burst(now, .90f, .32f, level.energy, DopamineBurstKind.BEAT)
-            if (level.energy >= .8f) burst(now, .5f, .08f, 1f, DopamineBurstKind.BEAT)
+            if (level.energy >= .8f) burst(now, .5f, .08f, level.energy, DopamineBurstKind.BEAT)
+            lastBeatAt = now
             if (vibration && vibrationBeat) { beatPulse(level.energy, beatIndex % 4 == 0); lastPulse = now }
+            if (beatIndex % 4 == 0 && level.energy >= .2f)
+                burst(now, if (beatIndex % 8 == 0) .18f else .82f, .98f, level.energy, DopamineBurstKind.BALLOON)
+            if (beatIndex % 4 == 0 && level.energy >= .45f)
+                burst(now, .18f + (beatIndex % 12) / 12f * .64f, .96f, level.energy, DopamineBurstKind.FIREWORK)
             beatIndex++
             // Keep the beat on its grid; after a stalled frame skip missed beats without a catch-up buzz.
             nextBeat += ((now - nextBeat) / level.beatMillis + 1) * level.beatMillis
@@ -111,7 +139,7 @@ internal class DopamineEngine(private val pulse: (Float) -> Unit, private val ca
         if (vibration && age(now, lastPulse) >= 150) { pulse(power); lastPulse = now }
     }
     fun reset() {
-        bursts.clear(); combo = 0; nextBeat = 0; beatIndex = 0; lastInteraction = Long.MIN_VALUE
+        bursts.clear(); combo = 0; nextBeat = 0; beatIndex = 0; lastBeatAt = Long.MIN_VALUE; lastPartyTouch = Long.MIN_VALUE; lastInteraction = Long.MIN_VALUE
         lastTouch = Long.MIN_VALUE; lastPulse = Long.MIN_VALUE
         if (enabled && vibration) cancel()
     }

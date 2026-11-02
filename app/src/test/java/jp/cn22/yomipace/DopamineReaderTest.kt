@@ -33,6 +33,7 @@ class DopamineReaderTest {
     @Test fun animatedBackgroundMovesWhileOpaqueForegroundGlyphsStayFixed() {
         var now=10_000L
         val engine=DopamineEngine({},{}).apply { configure(true,false,true,true,DopamineLevel.at(110.0,120.0)) }
+        engine.touch(now,.5f,.7f);engine.paragraph(now)
         val reader=reader(); val anchor=reader.logicalAnchorForTest()
         reader.bindDopamine(engine) { now }
         val first=draw(reader);now+=400;val second=draw(reader)

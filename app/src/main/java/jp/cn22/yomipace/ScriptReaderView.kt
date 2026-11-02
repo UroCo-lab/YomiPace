@@ -208,6 +208,30 @@ class ScriptReaderView(context: Context) : View(context) {
         }
         val left = textLeft
         val right = textRight
+        if(effects!=null) {
+            textPaint.textSize=fontPixels
+            paint.style=Paint.Style.FILL;paint.color=Color.argb(210,5,2,15)
+            rows.forEach { row ->
+                val y=row.top-scrollYf
+                if(row.item is ScriptItem.Sentence && y+row.height>=0 && y<=height) {
+                    val layout=row.layout!!
+                    for(line in 0 until layout.lineCount) {
+                        val baseline=y+layout.getLineBaseline(line)
+                        canvas.drawRoundRect(left+layout.getLineLeft(line)-dp(3f),baseline+textPaint.ascent()-dp(2f),
+                            left+layout.getLineRight(line)+dp(3f),baseline+textPaint.descent()+dp(2f),dp(3f),dp(3f),paint)
+                    }
+                }
+                if(row.item is ScriptItem.Fixed && y+row.height>=0 && y<=height) {
+                    val fraction=timeline?.byId?.get(row.item.id)?.fraction(elapsed)?.toFloat() ?: 0f
+                    val rect=blockRect.apply { set(left,y+dp(8f),right,y+dp(56f)) }
+                    paint.color=track;canvas.drawRoundRect(rect,dp(7f),dp(7f),paint)
+                    canvas.save();canvas.clipRect(rect.left,rect.top,rect.left+rect.width()*fraction,rect.bottom)
+                    paint.color=Color.argb(100,45,134,221);canvas.drawRoundRect(rect,dp(7f),dp(7f),paint);canvas.restore()
+                    paint.color=Color.argb(210,5,2,15)
+                }
+            }
+            effectsRenderer.drawReaderMascots(canvas,width.toFloat(),height.toFloat(),density,effectTime(),effects)
+        }
         rows.forEach { row ->
             val y = row.top - scrollYf
             if (y + row.height < 0 || y > height) return@forEach
@@ -221,13 +245,7 @@ class ScriptReaderView(context: Context) : View(context) {
                     canvas.save(); canvas.translate(left, y)
                     val layout = row.layout!!
                     if (chaos) {
-                        // Per-line backplates and opaque outlined glyphs sit above every background effect.
-                        paint.style = Paint.Style.FILL; paint.color = Color.argb(210, 5, 2, 15)
-                        for (line in 0 until layout.lineCount) {
-                            val baseline = layout.getLineBaseline(line).toFloat()
-                            canvas.drawRoundRect(layout.getLineLeft(line) - dp(3f), baseline + textPaint.ascent() - dp(2f),
-                                layout.getLineRight(line) + dp(3f), baseline + textPaint.descent() + dp(2f), dp(3f), dp(3f), paint)
-                        }
+                        // Opaque outlined glyphs stay in front of the mascots as well as the other effects.
                         textPaint.style = Paint.Style.STROKE; textPaint.strokeWidth = dp(2.5f); textPaint.color = Color.rgb(5, 2, 15)
                         layout.draw(canvas)
                         textPaint.style = Paint.Style.FILL; textPaint.color = textColor
@@ -261,9 +279,11 @@ class ScriptReaderView(context: Context) : View(context) {
                     val segment = timeline?.byId?.get(item.id)
                     val fraction = segment?.fraction(elapsed)?.toFloat() ?: 0f
                     val rect = blockRect.apply { set(left, y + dp(8f), right, y + dp(56f)) }
-                    paint.color = track; canvas.drawRoundRect(rect, dp(7f), dp(7f), paint)
-                    canvas.save(); canvas.clipRect(rect.left, rect.top, rect.left + rect.width() * fraction, rect.bottom)
-                    paint.color = Color.argb(100, 45, 134, 221); canvas.drawRoundRect(rect, dp(7f), dp(7f), paint); canvas.restore()
+                    if(!chaos) {
+                        paint.color = track; canvas.drawRoundRect(rect, dp(7f), dp(7f), paint)
+                        canvas.save(); canvas.clipRect(rect.left, rect.top, rect.left + rect.width() * fraction, rect.bottom)
+                        paint.color = Color.argb(100, 45, 134, 221); canvas.drawRoundRect(rect, dp(7f), dp(7f), paint); canvas.restore()
+                    }
                     paint.color = ink; paint.textSize = sp(13f)
                     // Labels can be long: wrap in a compact layout rather than paint outside the bar.
                     val label = row.blockLabelLayout!!

@@ -4,6 +4,51 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DopamineEngineTest {
+    @Test fun standardIsLinearAndEveryCurveReachesTheSameConfiguredMaximumAtTheDeadline() {
+        for(strength in listOf(30,60,100)) {
+            val start=DopamineLevel.at(0.0,100.0,strength).energy
+            val end=DopamineLevel.at(100.0,100.0,strength).energy
+            for(i in 0..100)assertEquals(start+(end-start)*i/100f,DopamineLevel.at(i.toDouble(),100.0,strength).energy,.0001f)
+            for(curve in DopamineRise.entries) {
+                assertEquals(start,DopamineLevel.at(0.0,100.0,strength,curve).energy,0f)
+                assertEquals(end,DopamineLevel.at(100.0,100.0,strength,curve).energy,0f)
+                assertTrue(DopamineLevel.at(99.0,100.0,strength,curve).energy<end)
+                assertEquals(end,DopamineLevel.at(150.0,100.0,strength,curve).energy,0f)
+            }
+        }
+    }
+    @Test fun mascotHopUsesTheSameBeatAndStopsOnPause() {
+        val e=DopamineEngine({},{});val level=DopamineLevel.at(100.0,100.0)
+        e.configure(true,true,true,true,level);e.tick(1000);e.tick(1000+level.beatMillis)
+        assertEquals(0f,e.beatHop(1000+level.beatMillis),.001f)
+        assertTrue(e.beatHop(1000+level.beatMillis+level.beatMillis/2)>.99f)
+        e.configure(true,true,true,false,level);assertEquals(0f,e.beatHop(2000),0f)
+    }
+    @Test fun touchCreatesPartyAtItsActualPositionAndRewindRemovesAllPartyKinds() {
+        val engine=DopamineEngine({}, {})
+        engine.configure(true,true,true,true,DopamineLevel.at(99.0,100.0))
+        engine.touch(1000,.37f,.72f)
+        for(kind in listOf(DopamineBurstKind.TOUCH,DopamineBurstKind.POPPER,DopamineBurstKind.BALLOON,DopamineBurstKind.FIREWORK)) {
+            val event=engine.bursts.single { it.kind==kind }
+            assertEquals(.37f,event.x,0f);assertEquals(.72f,event.y,0f)
+        }
+        repeat(500) { engine.touch(2000L+it*60,.4f,.6f) }
+        assertTrue(engine.bursts.size<=DopamineEngine.MAX_BURSTS)
+        engine.configure(true,true,true,true,DopamineLevel.at(5.0,100.0))
+        assertTrue(engine.bursts.isEmpty());assertEquals(0,engine.combo)
+        engine.touch(40_000,.37f,.72f)
+        assertFalse(engine.bursts.any { it.kind==DopamineBurstKind.FIREWORK })
+        assertTrue(engine.bursts.all { it.power==engine.level.energy })
+    }
+    @Test fun shortSparksExpireEvenWhenAnOlderBalloonIsStillFloating() {
+        val engine=DopamineEngine({}, {})
+        engine.configure(true,false,true,false,DopamineLevel.at(99.0,100.0))
+        engine.bursts.add(DopamineBurst(1000,.5f,.9f,1f,0,DopamineBurstKind.BALLOON))
+        engine.bursts.add(DopamineBurst(1100,.5f,.9f,1f,1))
+        engine.tick(3000)
+        assertEquals(1,engine.bursts.size);assertEquals(DopamineBurstKind.BALLOON,engine.bursts.single().kind)
+        engine.tick(6000);assertTrue(engine.bursts.isEmpty())
+    }
     @Test fun escalationDependsOnProportionAndCapsInOvertime() {
         val levels = (0..100).map { DopamineLevel.at(it.toDouble(), 100.0) }
         levels.zipWithNext().forEach { (a, b) -> assertTrue(a.energy <= b.energy); assertTrue(a.beatMillis >= b.beatMillis) }
@@ -45,11 +90,11 @@ class DopamineEngineTest {
         engine.tick(1800); engine.tick(2200)
         assertTrue(engine.bursts.isNotEmpty()); assertTrue(engine.combo > 0)
         engine.configure(true,true,true,true,DopamineLevel.at(10.0,100.0))
-        assertTrue(engine.level.energy < .07f); assertEquals(0,engine.combo); assertTrue(engine.bursts.isEmpty())
+        assertTrue(engine.level.energy < .16f); assertEquals(0,engine.combo); assertTrue(engine.bursts.isEmpty())
         val count = pulses.size
         engine.tick(2500); assertEquals(count,pulses.size)
         engine.tick(50_000); assertEquals(count+1,pulses.size)
-        assertTrue(pulses.last() < .07f)
+        assertTrue(pulses.last() < .16f)
     }
     @Test fun strengthAndRiseChangeTheCurveWithoutMakingTheOpeningLoud() {
         for (rise in DopamineRise.entries) for (strength in listOf(30,60,100)) {

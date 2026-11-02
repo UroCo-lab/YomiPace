@@ -42,6 +42,9 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
             DopamineLevel.at(vm.elapsed, vm.totalSeconds, vm.dopamineStrength, vm.dopamineRise), vm.dopamineBeat)
         engine.slideNumber = vm.currentSlide; engine.slideCount = vm.deck?.images?.size ?: 0
         engine.shade = vm.dopamineShade
+        engine.readerRegion = windows["reader"]?.takeIf { root.width > 0 && root.height > 0 && it.width > 0 && it.height > 0 }?.let {
+            DopamineRegion((it.left - root.left) / root.width, (it.top - root.top) / root.height, it.width / root.width, it.height / root.height)
+        }
     }
     DisposableEffect(engine) { onDispose { engine.reset(); engine.available = false } }
     val frameTime = remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
@@ -88,7 +91,7 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
                 }
                 Switch(vm.dopamineMode, vm::changeDopamineMode, Modifier.semantics { contentDescription = "DOPAGAKIモード" })
             }
-            Text("序盤は小さな火花から。経過時間に合わせて虹色WELCOME・招き猫・花火・稲妻が増え、終盤に向けて盛り上がります。時間を巻き戻すとコンボと花火をリセットし、その時点の強さへ戻ります。原稿を手でスクロールしても演出の段階は変わりません。")
+            Text("触った場所が弾け、クラッカーの紙吹雪と風船が飛び出します。後半は打ち上げ花火も追加。序盤は少なく、終盤ほど数と勢いが増えます。時間を巻き戻すと風船・花火・コンボをリセット。その時間の強さへ戻ります。原稿を手でスクロールしても演出の段階は変わりません。")
             Spacer(Modifier.height(12.dp))
             Text("演出の強さ：${vm.dopamineStrength}%")
             Slider(value = vm.dopamineStrength.toFloat(), onValueChange = { vm.changeDopamineStrength(it.roundToInt()) },
@@ -100,13 +103,25 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
                 valueRange = 0f..100f, steps = 9, enabled = vm.dopamineMode,
                 modifier = Modifier.semantics { contentDescription = "演出のシェード" })
             Text("0%は原色くっきり、100%は暗め。色の暗さだけを調整し、盛り上がる速さは変えません。原稿の文字下地と時計・進捗バーの保護は維持します。")
-            Text("盛り上がる速さ：${vm.dopamineRise.label}")
+            Text("盛り上がりカーブ：${vm.dopamineRise.label}${if(vm.dopamineRise==DopamineRise.STANDARD) "（直線）" else ""}")
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 DopamineRise.entries.forEach { rise ->
                     FilterChip(selected = vm.dopamineRise == rise, onClick = { vm.changeDopamineRise(rise) },
                         label = { Text(rise.label) }, enabled = vm.dopamineMode)
                 }
             }
+            Canvas(Modifier.fillMaxWidth().height(86.dp).semantics { contentDescription = "盛り上がりカーブ。標準は直線。全て予定時間で設定した強さに到達" }) {
+                val pad=12.dp.toPx();val w=size.width-2*pad;val h=size.height-2*pad
+                drawLine(androidx.compose.ui.graphics.Color.Gray,androidx.compose.ui.geometry.Offset(pad,pad),androidx.compose.ui.geometry.Offset(pad,pad+h))
+                drawLine(androidx.compose.ui.graphics.Color.Gray,androidx.compose.ui.geometry.Offset(pad,pad+h),androidx.compose.ui.geometry.Offset(pad+w,pad+h))
+                val path=androidx.compose.ui.graphics.Path()
+                for(i in 0..100) {
+                    val y=pad+h*(1-DopamineLevel.at(i.toDouble(),100.0,vm.dopamineStrength,vm.dopamineRise).energy)
+                    if(i==0)path.moveTo(pad,y) else path.lineTo(pad+w*i/100f,y)
+                }
+                drawPath(path,androidx.compose.ui.graphics.Color(0xFFFF17C8),style=androidx.compose.ui.graphics.drawscope.Stroke(3.dp.toPx()))
+            }
+            Text("横軸は経過時間、縦軸は演出の強さ。標準は直線、前半型は早め、後半型は終盤で伸びます。どれも予定時間で設定した強さへ到達します。100%なら予定時間で最大、超過後は最大を維持します。")
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("演出の振動", Modifier.weight(1f))

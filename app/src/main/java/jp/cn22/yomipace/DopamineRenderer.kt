@@ -75,15 +75,7 @@ internal class DopamineRenderer {
             retro(canvas, left, right, topRoom, density, t, e, now, engine)
             canvas.restoreToCount(retroSave)
         }
-        if (engine.running && reader != null) {
-            val above = protected.filter { it.bottom <= reader.top + 1 && it.right > reader.left && it.left < reader.right }
-                .maxOfOrNull { it.bottom } ?: 0f
-            val gap = reader.top - above
-            if (gap >= 30 * density) {
-                val scale = minOf(density, (gap - 6 * density) / 56)
-                cat(canvas, reader.right - 32 * density, above + gap * .47f, scale, t * (.4f + e))
-            }
-        }
+        if (engine.running) mascots(canvas,width,height,density,now,engine)
         canvas.restoreToCount(saved)
         // Slides retain their real content and number: only a faint, bounded accent, never slogans or bursts.
         if (engine.running && slides.isNotEmpty()) {
@@ -93,8 +85,28 @@ internal class DopamineRenderer {
             val slideSave = canvas.save(); canvas.clipPath(slideClip)
             shadeLayer(canvas, width, height, engine.shade, (255 * (.02f + .10f * e)).toInt())
             field(canvas, width, height, density, t, e, cx, cy, false)
+            bursts(canvas, width, height, density, now, engine, emptyList())
             canvas.restoreToCount(slideSave)
         }
+    }
+
+    /** Draw after the reader's line plates and before all glyphs; use the same global corner positions as the root. */
+    fun drawReaderMascots(c: Canvas, w: Float, h: Float, d: Float, now: Long, engine: DopamineEngine) {
+        if(!engine.enabled || !engine.available || !engine.running)return
+        val r=engine.readerRegion?.takeIf { it.width>.0001f && it.height>.0001f } ?: DopamineRegion(0f,0f,1f,1f)
+        val gw=w/r.width;val gh=h/r.height;val saved=c.save()
+        c.clipRect(0f,0f,w,h);shadeLayer(c,w,h,engine.shade)
+        c.translate(-r.left*gw,-r.top*gh);mascots(c,gw,gh,d,now,engine)
+        c.restoreToCount(saved)
+    }
+
+    private fun mascots(c: Canvas,w: Float,h: Float,d: Float,now: Long,engine: DopamineEngine) {
+        val hop=engine.beatHop(now);val e=engine.level.energy
+        val y=h-31*d-hop*(6+24*e)*d
+        val beam=((engine.level.progress-.75)/.25).toFloat().coerceIn(0f,1f)*e
+        val t=(now%120_000)/1000f
+        cat(c,33*d,y,.9f*d,t,hop,beam,false)
+        cat(c,w-33*d,y,.9f*d,t,hop,beam,true)
     }
 
     /** Called before line plates, text, progress and the red marker inside ScriptReaderView. */
@@ -107,6 +119,11 @@ internal class DopamineRenderer {
         shadeLayer(canvas, width, height, engine.shade)
         field(canvas, width, height, density, t, e, width * .5f, height * .35f, true)
         if (engine.running) homepage(canvas, width, density, t, e, engine)
+        val region = engine.readerRegion?.takeIf { it.width > .0001f && it.height > .0001f }
+            ?: DopamineRegion(0f, 0f, 1f, 1f)
+        val globalWidth = width / region.width; val globalHeight = height / region.height
+        canvas.translate(-region.left * globalWidth, -region.top * globalHeight)
+        bursts(canvas, globalWidth, globalHeight, density, now, engine, emptyList())
         canvas.restoreToCount(saved)
     }
 
@@ -125,7 +142,7 @@ internal class DopamineRenderer {
         }
         groups.forEachIndexed { i, p -> ink(palette[i], .4f + .35f * e, d); c.drawPath(p, paint) }
         // Broad moving ribbons supply energy without full-screen flashes.
-        repeat((6 * e * e).roundToInt()) { i ->
+        repeat((6 * e).roundToInt()) { i ->
             path.reset()
             for (j in 0..26) {
                 val x = w * j / 26f
@@ -135,7 +152,7 @@ internal class DopamineRenderer {
             ink(palette[i], if (reader) .30f else .42f, (12 + 15 * e) * d); c.drawPath(path, paint)
             ink(palette[i], .75f, (1 + e * 2) * d); c.drawPath(path, paint)
         }
-        val rays = (if (reader) 3 + 85 * e * e else 4 + 176 * e * e).toInt()
+        val rays = (if (reader) 3 + 85 * e else 4 + 176 * e).toInt()
         for (group in groups) group.reset()
         repeat(rays) { i ->
             val a = i * 2.399963f + t * (.13f + e * .32f)
@@ -150,7 +167,7 @@ internal class DopamineRenderer {
             ink(palette[i], if (reader) .22f else .26f, (6 + e * 5) * d); c.drawPath(p, paint)
             ink(palette[i], if (reader) .65f else .95f, (1 + e * 1.5f) * d); c.drawPath(p, paint)
         }
-        repeat(((if (reader) 3 else 7) * e * e).roundToInt()) { i ->
+        repeat(((if (reader) 3 else 7) * e).roundToInt()) { i ->
             val phase = (t * (.45f + e * .4f) + i / 7f) % 1
             val radius = min(w, h) * (.12f + phase * .95f)
             val color = palette[i.mod(6)]
@@ -158,7 +175,7 @@ internal class DopamineRenderer {
             ink(color, (1 - phase) * .95f, 2 * d); c.drawCircle(cx, cy, radius, paint)
         }
         for (group in groups) group.reset()
-        repeat((if (reader) 2 + 98 * e * e else 3 + 237 * e * e).toInt()) { i ->
+        repeat((if (reader) 2 + 98 * e else 3 + 237 * e).toInt()) { i ->
             val x = (((i * .618034f + sin(t * 1.8f + i) * .055f) % 1) + 1) % 1 * w
             val y = (i * .3791f + t * (.08f + .32f * e)) % 1 * h
             val r = (.7f + i % 3 + e * 3) * d
@@ -194,10 +211,16 @@ internal class DopamineRenderer {
     private fun bursts(c: Canvas, w: Float, h: Float, d: Float, now: Long, engine: DopamineEngine, windows: List<RectF>) {
         engine.bursts.forEach { b ->
             val age = ((now - b.time) / 1000f).coerceAtLeast(0f)
-            if (age > DopamineEngine.BURST_LIFETIME / 1000f) return@forEach
+            if (age > b.lifetime / 1000f) return@forEach
+            when (b.kind) {
+                DopamineBurstKind.POPPER -> { popper(c, w, h, d, age, b); return@forEach }
+                DopamineBurstKind.BALLOON -> { balloon(c, w, h, d, age, b); return@forEach }
+                DopamineBurstKind.FIREWORK -> { firework(c, w, h, d, age, b, engine.readerRegion); return@forEach }
+                else -> Unit
+            }
             val alpha = (1 - age / 1.4f).coerceAtLeast(0f).pow(1.5f)
             var x = b.x * w; var y = b.y * h
-            windows.firstOrNull { it.contains(x, y) }?.let { r ->
+            windows.firstOrNull { b.kind != DopamineBurstKind.TOUCH && it.contains(x, y) }?.let { r ->
                 val distance = floatArrayOf(x - r.left, r.right - x, y - r.top, r.bottom - y)
                 when (distance.indices.minBy { distance[it] }) {
                     0 -> x = r.left - 4 * d
@@ -208,6 +231,9 @@ internal class DopamineRenderer {
             }
             val special = b.kind == DopamineBurstKind.JACKPOT || b.kind == DopamineBurstKind.PARAGRAPH
             val radius = age * (20 + 240 * b.power) * d
+            if (b.kind == DopamineBurstKind.TOUCH && age < .12f) {
+                ink(Color.WHITE, 1 - age / .12f); c.drawCircle(x, y, (3 + 6 * b.power) * d, paint)
+            }
             ink(palette[b.seed.mod(6)], alpha * .25f, (10 + 12 * b.power) * d); c.drawCircle(x, y, radius, paint)
             ink(Color.WHITE, alpha, 2 * d); c.drawCircle(x, y, radius, paint)
             path.reset()
@@ -223,12 +249,71 @@ internal class DopamineRenderer {
         }
     }
 
+    private fun popper(c: Canvas, w: Float, h: Float, d: Float, age: Float, b: DopamineBurst) {
+        val x = b.x * w; val y = b.y * h
+        val fade = (1 - age / 1.9f).coerceIn(0f, 1f)
+        val size = (7 + 11 * b.power) * d
+        if (age < .7f) {
+            path.reset(); path.moveTo(x, y + 2 * d); path.lineTo(x - size, y + size * 2); path.lineTo(x + size, y + size * 1.7f); path.close()
+            ink(palette[b.seed.mod(6)], fade); c.drawPath(path, paint)
+            ink(Color.YELLOW, fade, 2 * d); c.drawLine(x - size * .65f, y + size * 1.5f, x + size * .65f, y + size * 1.3f, paint)
+        }
+        for (group in groups) group.reset()
+        repeat((8 + 44 * b.power).toInt()) { i ->
+            val angle = -PI.toFloat() * (.14f + .72f * ((i * .618034f + b.seed * .17f) % 1))
+            val speed = (35 + 150 * b.power) * d * (.5f + i % 7 / 7f)
+            val px = x + cos(angle) * speed * age + sin(i + age * 8) * age * 9 * d
+            val py = y + sin(angle) * speed * age + 75 * d * age * age
+            val r = (1 + 3 * b.power) * d; val spin = age * (7 + i % 4) + i
+            val p = groups[(i + b.seed).mod(6)]
+            p.moveTo(px - cos(spin) * r, py - sin(spin) * r); p.lineTo(px + cos(spin) * r, py + sin(spin) * r)
+        }
+        groups.forEachIndexed { i,p -> ink(palette[i],fade,(2 + b.power) * d); c.drawPath(p,paint) }
+    }
+
+    private fun balloon(c: Canvas, w: Float, h: Float, d: Float, age: Float, b: DopamineBurst) {
+        val fade = minOf(1f, (4.5f - age).coerceAtLeast(0f))
+        val radius = (7 + 14 * b.power) * d
+        val x = b.x * w + sin(age * 2.4f + b.seed) * (7 + 18 * b.power) * d * minOf(age,1f)
+        val y = b.y * h - age * (32 + 90 * b.power) * d
+        ink(palette[b.seed.mod(6)],fade); c.drawOval(x-radius,y-radius*1.3f,x+radius,y+radius*1.1f,paint)
+        path.reset();path.moveTo(x,y+radius);path.lineTo(x-3*d,y+radius+5*d);path.lineTo(x+3*d,y+radius+5*d);path.close();c.drawPath(path,paint)
+        ink(Color.WHITE,.8f*fade);c.drawOval(x-radius*.55f,y-radius*.85f,x-radius*.20f,y-radius*.25f,paint)
+        path.reset();path.moveTo(x,y+radius+5*d)
+        path.cubicTo(x+10*d*sin(age*3),y+radius+20*d,x-12*d*sin(age*2),y+radius+32*d,x+5*d*sin(age*3),y+radius+45*d)
+        ink(Color.WHITE,.65f*fade,d);c.drawPath(path,paint)
+    }
+
+    private fun firework(c: Canvas, w: Float, h: Float, d: Float, age: Float, b: DopamineBurst, reader: DopamineRegion?) {
+        val startX=b.x*w;val startY=b.y*h
+        val peakX=(startX+sin(b.seed*1.7f)*w*.10f).coerceIn(w*.05f,w*.95f)
+        val inReader=reader?.takeIf { b.x in it.left..(it.left+it.width) && b.y in it.top..(it.top+it.height) }
+        val ceiling=if(inReader!=null) inReader.top*h+minOf(20*d,inReader.height*h*.08f) else h*.05f
+        val peakY=(startY-h*(.16f+.30f*b.power)).coerceAtLeast(minOf(startY,ceiling))
+        if(age<.8f) {
+            val p=1-(1-age/.8f).pow(2)
+            val x=startX+(peakX-startX)*p;val y=startY+(peakY-startY)*p
+            ink(palette[b.seed.mod(6)],.7f,3*d);c.drawLine(x,y,x-(peakX-startX)*.08f,y+22*d,paint)
+            ink(Color.WHITE);c.drawCircle(x,y,(2+2*b.power)*d,paint)
+            return
+        }
+        val t=age-.8f;val fade=(1-t/2).coerceIn(0f,1f).pow(1.3f)
+        val radius=(30+130*b.power)*d*t.pow(.6f)
+        for(group in groups)group.reset()
+        repeat((14+64*b.power).toInt()) { i ->
+            val a=i*2.399963f+b.seed;val r=radius*(.5f+i%5/10f)
+            val x=peakX+cos(a)*r;val y=peakY+sin(a)*r+30*d*t*t
+            val p=groups[(i+b.seed).mod(6)]
+            p.moveTo(x,y);p.lineTo(x-cos(a)*(4+10*b.power)*d,y-sin(a)*(4+10*b.power)*d)
+        }
+        groups.forEachIndexed { i,p -> ink(palette[i],fade,(1.5f+2*b.power)*d);c.drawPath(p,paint) }
+        if(t<.12f) {ink(Color.WHITE,(1-t/.12f)*.8f);c.drawCircle(peakX,peakY,(7+14*b.power)*d,paint)}
+    }
+
     private fun retro(c: Canvas, left: Float, right: Float, room: Float, d: Float, t: Float, e: Float, now: Long, engine: DopamineEngine) {
         val width = right - left; val cx = (left + right) / 2
         // A compact retro header survives the slide/progress protection without covering the slide itself.
         rainbow(c, "WELCOME!!", cx, 23 * d, minOf(15 * d, width / 12), t, d)
-        cat(c, right - 14 * d, 14 * d, d * .35f, t)
-        cat(c, right - 31 * d, max(62 * d, room * .26f), d, t)
         val welcomeSize = minOf(32 * d, width / 10)
         rainbow(c, "WELCOME!!", cx, max(42 * d, room * .17f), welcomeSize * (1 + .08f * sin(t * 5)), t, d)
         val headlineY = minOf(room * .52f, 190 * d)
@@ -278,7 +363,6 @@ internal class DopamineRenderer {
 
     /** Background-only homepage toys; the reader paints its opaque glyphs and line plates afterwards. */
     private fun homepage(c: Canvas, w: Float, d: Float, t: Float, e: Float, engine: DopamineEngine) {
-        cat(c, w - 38 * d, 35 * d, .85f * d, t * (.35f + e))
         if (e < .15f) return
         val right = (w - 80 * d).coerceAtLeast(80 * d)
         rainbow(c, "★ DOPAのホームページ ★", right / 2 + 7 * d, 19 * d,
@@ -314,22 +398,27 @@ internal class DopamineRenderer {
         ink(Color.WHITE, 1f, 2 * d); c.drawLine(r.left, r.bottom, r.left, r.top, paint); c.drawLine(r.left, r.top, r.right, r.top, paint)
         ink(0xFF727299.toInt(), 1f, 2 * d); c.drawLine(r.right, r.top, r.right, r.bottom, paint); c.drawLine(r.right, r.bottom, r.left, r.bottom, paint)
     }
-    private fun cat(c: Canvas, x: Float, y: Float, d: Float, t: Float) {
+    private fun cat(c: Canvas, x: Float, y: Float, d: Float, t: Float, hop: Float, beam: Float, mirror: Boolean) {
         // An original blocky beckoning cat; no historical website images are reused.
-        val saved = c.save(); c.translate(x, y); c.rotate(sin(t * 4) * 5)
+        val saved = c.save(); c.translate(x, y);c.scale(if(mirror)-1f else 1f,1f);c.rotate(hop*6)
         ink(0xFFFFCF40.toInt()); c.drawRect(-17 * d, -14 * d, 17 * d, 14 * d, paint)
         c.drawRect(-16 * d, -23 * d, -5 * d, -10 * d, paint); c.drawRect(5 * d, -23 * d, 16 * d, -10 * d, paint)
         c.drawRect(-13 * d, 12 * d, 13 * d, 29 * d, paint)
         ink(0xFFFF40C8.toInt()); c.drawRect(-12 * d, -20 * d, -8 * d, -12 * d, paint)
         c.drawRect(8 * d, -20 * d, 12 * d, -12 * d, paint)
         ink(0xFFFF3E3E.toInt()); c.drawRect(-12 * d, 14 * d, 12 * d, 18 * d, paint)
-        val paw = -4 * d * sin(t * 8)
+        val paw = -14 * d * hop
         ink(0xFFFFCF40.toInt()); c.drawRect(17 * d, -6 * d + paw, 24 * d, 17 * d + paw, paint)
         for (eye in listOf(-7f, 7f)) {
             ink(0xFF39FF65.toInt(), .6f); c.drawCircle(eye * d, -3 * d, 7 * d, paint)
             ink(Color.WHITE); c.drawRect((eye - 2) * d, -5 * d, (eye + 2) * d, -d, paint)
-            ink(0xFF39FF65.toInt(), .8f, d)
-            c.drawLine(eye * d, -3 * d, (eye - 20 - sin(t * 3) * 12) * d, 80 * d, paint)
+            if(beam>0) repeat(3) { ray ->
+                val bx=(60+150*beam+sin(t*3+ray)*20)*d
+                val by=-(70+300*beam+ray*12)*d
+                ink(0xFF39FF65.toInt(),beam*.3f,(4+10*beam)*d);c.drawLine(eye*d,-3*d,bx,by,paint)
+                ink(0xFF39FF65.toInt(),beam,(1+2*beam)*d);c.drawLine(eye*d,-3*d,bx,by,paint)
+                ink(Color.WHITE,beam*.85f,.7f*d);c.drawLine(eye*d,-3*d,bx,by,paint)
+            }
         }
         ink(Color.BLACK, 1f, d); c.drawLine(-3 * d, 6 * d, 3 * d, 6 * d, paint)
         c.restoreToCount(saved)

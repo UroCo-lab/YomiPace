@@ -172,7 +172,7 @@ class ComposeScreenTest {
                 bar.onTouchEvent(android.view.MotionEvent.obtain(now, now + 20, 1, x, bar.height / 2f, 0))
             }
             tap(.2f); assertEquals(84.0, vm.elapsed, 2.0); assertFalse(vm.running)
-            assertTrue(vm.dopamine.level.energy < .10f); assertEquals(0,vm.dopamine.combo); assertTrue(vm.dopamine.bursts.isEmpty())
+            assertTrue(vm.dopamine.level.energy < .26f); assertEquals(0,vm.dopamine.combo); assertTrue(vm.dopamine.bursts.isEmpty())
             tap(.8f); assertEquals(336.0, vm.elapsed, 2.0); assertFalse(vm.running)
             assertEquals(anchor, vm.anchor)
         }
@@ -188,7 +188,7 @@ class ComposeScreenTest {
             .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(60f) }
         rule.onNodeWithContentDescription("演出のシェード").performScrollTo()
             .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(30f) }
-        rule.onNodeWithText("じわじわ").performScrollTo().performClick()
+        rule.onNodeWithText("後半型").performScrollTo().performClick()
         rule.onNodeWithContentDescription("振動ビート").performScrollTo().performClick()
         rule.onNodeWithText("閉じる").performClick()
         rule.runOnIdle { assertEquals(30,vm.dopamineShade); assertEquals(60,vm.dopamineStrength); assertEquals(DopamineRise.SLOW,vm.dopamineRise); assertFalse(vm.dopamineBeat) }
@@ -210,6 +210,13 @@ class ComposeScreenTest {
         screenshot("dopamine-$name-spark")
         rule.runOnIdle { vm.seekTo(410.0); vm.play() }
         screenshot("dopamine-$name-climax")
+        rule.runOnIdle {
+            val now=android.os.SystemClock.elapsedRealtime()
+            vm.dopamine.touch(now-1100,.20f,.82f)
+            vm.dopamine.touch(now-650,.50f,.80f)
+            vm.dopamine.touch(now-250,.80f,.85f)
+        }
+        screenshot("dopamine-$name-party")
         rule.runOnIdle { vm.changeDopamineShade(70) }
         screenshot("dopamine-$name-shade70")
         rule.runOnIdle { vm.changeDopamineShade(0); assertTrue(vm.dopamine.level.energy > .9f); vm.pause() }

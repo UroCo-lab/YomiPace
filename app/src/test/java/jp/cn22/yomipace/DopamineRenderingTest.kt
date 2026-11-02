@@ -12,6 +12,21 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class DopamineRenderingTest {
+    @Test fun aTouchInTheReaderBurstsAtTheMappedFingerPosition() {
+        val engine=DopamineEngine({},{}).apply {
+            configure(true,false,true,true,DopamineLevel.at(99.0,100.0))
+            readerRegion=DopamineRegion(.1f,.5f,.8f,.5f)
+        }
+        val renderer=DopamineRenderer()
+        fun draw(): Bitmap = Bitmap.createBitmap(320,400,Bitmap.Config.ARGB_8888).also {
+            renderer.drawReaderBackground(Canvas(it),320f,400f,1f,1000,engine)
+        }
+        val before=draw();engine.touch(1000,.5f,.75f);val after=draw()
+        var nearFinger=0
+        for(y in 180..220)for(x in 140..180)if(before.getPixel(x,y)!=after.getPixel(x,y))nearFinger++
+        assertTrue("Touch feedback moved away from the finger in the reader",nearFinger>100)
+        before.recycle();after.recycle()
+    }
     @Test fun shadeCanRestoreFullNeonColorsWithoutChangingTheTimeline() {
         val bitmap=Bitmap.createBitmap(360,800,Bitmap.Config.ARGB_8888)
         val engine=DopamineEngine({},{}).apply { configure(true,false,true,true,DopamineLevel.at(99.0,100.0)) }
@@ -26,15 +41,18 @@ class DopamineRenderingTest {
         assertTrue("Neon colors are still dimmed",bright>1000);assertEquals(0,dim)
         assertEquals(original,engine.level);bitmap.recycle()
     }
-    @Test fun beckoningCatRemainsVisibleBetweenSlidesProgressAndReaderEvenAtTheOpening() {
-        val image=Bitmap.createBitmap(360,800,Bitmap.Config.ARGB_8888)
-        val engine=DopamineEngine({},{}).apply { configure(true,false,true,true,DopamineLevel.at(0.0,100.0)) }
-        DopamineRenderer().draw(Canvas(image),360f,800f,1f,10_000,engine,
-            listOf(RectF(10f,205f,350f,360f),RectF(0f,423f,360f,800f)),
-            listOf(RectF(8f,35f,352f,196f)))
-        var catPixels=0
-        for(y in 361..422) for(x in 290..355) if(image.getPixel(x,y)==0xFFFFCF40.toInt())catPixels++
-        assertTrue("Cat clipped away by the slide/reader protection",catPixels>150)
+    @Test fun bothCatsAreVisibleAtTheLowerSidesOfTheReaderEvenAtTheOpening() {
+        val image=Bitmap.createBitmap(360,400,Bitmap.Config.ARGB_8888)
+        val engine=DopamineEngine({},{}).apply {
+            configure(true,false,true,true,DopamineLevel.at(0.0,100.0))
+            readerRegion=DopamineRegion(0f,.5f,1f,.5f)
+        }
+        DopamineRenderer().drawReaderMascots(Canvas(image),360f,400f,1f,10_000,engine)
+        for(range in listOf(8..60,300..352)) {
+            var catPixels=0
+            for(y in 340..399)for(x in range)if(image.getPixel(x,y)==0xFFFFCF40.toInt())catPixels++
+            assertTrue("Lower-side cat hidden",catPixels>150)
+        }
         image.recycle()
     }
     @Test fun effectsGrowWithTimeAndARewindRestoresTheQuietRendering() {
