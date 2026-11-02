@@ -100,7 +100,7 @@ class ScriptReaderView(context: Context) : View(context) {
         textPaint.textSize = fontPixels
         rows = items.map { item ->
             val layout = if (item is ScriptItem.Sentence) StaticLayout.Builder.obtain(item.text, 0, item.text.length, textPaint, available)
-                .setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(false).setLineSpacing(0f, 1.65f).setBreakStrategy(Layout.BREAK_STRATEGY_HIGH_QUALITY).build() else null
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(false).setLineSpacing(0f, 1.65f).setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY).build() else null
             val rowHeight = when (item) {
                 is ScriptItem.Heading -> dp(if (item.slide == 1) 32f else 42f)
                 is ScriptItem.Fixed -> dp(88f)
