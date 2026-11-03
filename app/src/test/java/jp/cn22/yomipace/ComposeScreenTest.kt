@@ -230,6 +230,71 @@ class ComposeScreenTest {
         rule.onNodeWithTag("dopamine-effects").assertDoesNotExist()
     }
     @Test fun dopamineCoverVisuals() = dopamineSnapshots("cover", false)
+    @Test fun liveClockEscalatesEffectsWithoutSeekingAndMatchesSeekAtTheSameTime() {
+        val vm=loadSample()
+        rule.runOnIdle {
+            assertNull(vm.setTotal(60.0));vm.changeDopamineRise(DopamineRise.STANDARD)
+            vm.changeDopamineStrength(100);vm.changeDopamineMode(true);vm.changeDopamineVibration(false)
+        }
+        rule.onNodeWithText("開始").performClick()
+        val rows=mutableListOf("route,elapsed,total,progress,energy,expected")
+        fun record(route: String): Pair<Float,Float> {
+            var values=0f to 0f
+            rule.runOnIdle {
+                val expected=DopamineLevel.at(vm.elapsed,vm.totalSeconds,vm.dopamineStrength,vm.dopamineRise)
+                values=vm.dopamine.level.energy to expected.energy
+                rows.add("$route,${vm.elapsed},${vm.totalSeconds},${vm.dopamine.level.progress},${values.first},${values.second}")
+            }
+            return values
+        }
+        record("start")
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(15))
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications();rule.waitForIdle()
+        val natural=record("natural-15s")
+        screenshot("live-clock-natural")
+        rule.runOnIdle { val sameTime=vm.elapsed;vm.seekTo(sameTime);vm.play() }
+        val seek=record("seek-same-time")
+        screenshot("live-clock-after-seek")
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(15))
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications();rule.waitForIdle()
+        val continued=record("natural-after-resume")
+        println(rows.joinToString("\n"))
+        File("build/test-live-clock").apply { mkdirs() }.resolve("live-${System.nanoTime()}.csv").writeText(rows.joinToString("\n"))
+        assertEquals("Live elapsed time is not reaching the effects engine",natural.second,natural.first,.003f)
+        assertEquals("Seek differs from live progression",seek.second,seek.first,.003f)
+        assertEquals("Effects froze again after resuming",continued.second,continued.first,.003f)
+    }
+    @Test fun liveClockReachesMaximumAndKeepsUpdatingAfterCurveRewindAndLifecycleChanges() {
+        val vm=loadSample()
+        rule.runOnIdle { assertNull(vm.setTotal(60.0));vm.changeDopamineMode(true);vm.changeDopamineVibration(false) }
+        val anchor=vm.anchor
+        val trace=mutableListOf("route,elapsed,energy,expected")
+        fun advance(seconds: Long,route: String) {
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(seconds))
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications();rule.waitForIdle()
+            rule.runOnIdle {
+                val expected=DopamineLevel.at(vm.elapsed,vm.totalSeconds,vm.dopamineStrength,vm.dopamineRise).energy
+                trace.add("$route,${vm.elapsed},${vm.dopamine.level.energy},$expected")
+                assertEquals("Live clock diverged at $route",expected,vm.dopamine.level.energy,.003f)
+            }
+        }
+        rule.onNodeWithText("開始").performClick();advance(12,"standard")
+        rule.runOnIdle { vm.changeDopamineRise(DopamineRise.SLOW) };advance(10,"late-curve")
+        rule.onNodeWithText("停止").performClick()
+        rule.runOnIdle { vm.seekTo(5.0);assertTrue(vm.dopamine.bursts.isEmpty()) }
+        rule.onNodeWithText("開始").performClick();advance(5,"rewind-resume")
+        rule.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.STARTED)
+        assertFalse(vm.effectsForeground);assertFalse(vm.dopamine.available)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        rule.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+        advance(5,"lifecycle-resume")
+        val rest=kotlin.math.ceil((vm.totalSeconds ?: 60.0)-vm.elapsed).toLong().coerceAtLeast(0)+1
+        advance(rest,"deadline")
+        rule.runOnIdle { assertEquals(1f,vm.dopamine.level.energy,0f);assertEquals(anchor,vm.anchor) }
+        screenshot("live-clock-deadline")
+        println(trace.joinToString("\n"))
+        File("build/test-live-clock").apply { mkdirs() }.resolve("lifecycle-${System.nanoTime()}.csv").writeText(trace.joinToString("\n"))
+    }
     @Test @Config(qualifiers = "w720dp-h840dp-port-night-mdpi") fun dopamineFoldDarkVisualsAndSwap() = dopamineSnapshots("fold-dark", true)
 
     @Test fun compactScreenMenuAndSettings() {

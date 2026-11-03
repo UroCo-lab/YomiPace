@@ -37,23 +37,31 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
     val engine = vm.dopamine
     val available = vm.effectsForeground && !suspended && !vm.busy
     val enabled = vm.dopamineMode
+    // Read snapshot state in composition. Reads inside SideEffect do not subscribe this
+    // composable, so child clock redraws alone previously left the engine at its old level.
+    val running = vm.running
+    val level = DopamineLevel.at(vm.elapsed, vm.totalSeconds, vm.dopamineStrength, vm.dopamineRise)
+    val vibration = vm.dopamineVibration
+    val beat = vm.dopamineBeat
+    val shade = vm.dopamineShade
+    val slideNumber = vm.currentSlide
+    val slideCount = vm.deck?.images?.size ?: 0
+    val readerRegion = windows["reader"]?.takeIf { root.width > 0 && root.height > 0 && it.width > 0 && it.height > 0 }?.let {
+        DopamineRegion((it.left - root.left) / root.width, (it.top - root.top) / root.height, it.width / root.width, it.height / root.height)
+    }
     SideEffect {
-        engine.configure(enabled, vm.dopamineVibration, available, vm.running,
-            DopamineLevel.at(vm.elapsed, vm.totalSeconds, vm.dopamineStrength, vm.dopamineRise), vm.dopamineBeat)
-        engine.slideNumber = vm.currentSlide; engine.slideCount = vm.deck?.images?.size ?: 0
-        engine.shade = vm.dopamineShade
-        engine.readerRegion = windows["reader"]?.takeIf { root.width > 0 && root.height > 0 && it.width > 0 && it.height > 0 }?.let {
-            DopamineRegion((it.left - root.left) / root.width, (it.top - root.top) / root.height, it.width / root.width, it.height / root.height)
-        }
+        engine.configure(enabled, vibration, available, running, level, beat)
+        engine.slideNumber = slideNumber; engine.slideCount = slideCount
+        engine.shade = shade; engine.readerRegion = readerRegion
     }
     DisposableEffect(engine) { onDispose { engine.reset(); engine.available = false } }
     val frameTime = remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
-    LaunchedEffect(enabled, available, vm.running) {
+    LaunchedEffect(enabled, available, running) {
         if (enabled && available) while (true) {
             val now = SystemClock.elapsedRealtime()
             val hadBursts = engine.bursts.isNotEmpty()
             engine.tick(now)
-            if (vm.running || hadBursts || engine.bursts.isNotEmpty()) frameTime.longValue = now
+            if (running || hadBursts || engine.bursts.isNotEmpty()) frameTime.longValue = now
             delay(33) // Bound animation to about 30 fps, including on high refresh-rate phones.
         }
     }
