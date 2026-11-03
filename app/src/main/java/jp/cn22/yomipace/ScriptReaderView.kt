@@ -49,9 +49,26 @@ class ScriptReaderView(context: Context) : View(context) {
     private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val effectsRenderer by lazy { DopamineRenderer() }
     private var effectEngine: DopamineEngine? = null
-    private var effectTime: () -> Long = SystemClock::elapsedRealtime
-    internal fun bindDopamine(engine: DopamineEngine?, time: () -> Long = SystemClock::elapsedRealtime) {
-        effectEngine = engine; effectTime = time; invalidate()
+    private var effectTime: (() -> Long)? = null
+    private val effectFrame: () -> Unit = { invalidate() }
+    private val foreground=DrawCommandCache("Reader glyphs")
+    private val plates=DrawCommandCache("Reader line plates")
+    private var layoutRevision=0L
+    internal val foregroundRecordings get()=foreground.recordings
+    internal val plateRecordings get()=plates.recordings
+    private fun effectNow()=effectTime?.invoke() ?: effectEngine?.frameTime?.takeIf { it>0 } ?: SystemClock.elapsedRealtime()
+    internal fun bindDopamine(engine: DopamineEngine?, time: (() -> Long)? = null) {
+        if(effectEngine===engine && effectTime===time)return
+        effectEngine?.removeFrameListener(effectFrame)
+        effectEngine=engine;effectTime=time
+        if(isAttachedToWindow)engine?.addFrameListener(effectFrame)
+        invalidate()
+    }
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow();effectEngine?.addFrameListener(effectFrame)
+    }
+    override fun onDetachedFromWindow() {
+        effectEngine?.removeFrameListener(effectFrame);super.onDetachedFromWindow()
     }
     private val scroller = OverScroller(context)
     private var inertia = 0.5
@@ -95,6 +112,7 @@ class ScriptReaderView(context: Context) : View(context) {
     }
     private fun reflow() {
         if (width <= 0 || height <= 0) return
+        layoutRevision++
         val available = (textRight - textLeft).roundToInt().coerceAtLeast(1)
         var top = markerY
         textPaint.textSize = fontPixels
@@ -203,104 +221,136 @@ class ScriptReaderView(context: Context) : View(context) {
         val accent = if (chaos) Color.rgb(92, 225, 255) else blue
         val track = if (chaos) Color.rgb(24, 22, 49) else colorTrack
         if (effects != null) {
-            effectsRenderer.drawReaderBackground(canvas, width.toFloat(), height.toFloat(), density, effectTime(), effects)
-            if (effects.running || effects.bursts.isNotEmpty()) postInvalidateDelayed(33)
+            effectsRenderer.drawReaderBackground(canvas, width.toFloat(), height.toFloat(), density, effectNow(), effects)
         }
         val left = textLeft
         val right = textRight
-        if(effects!=null) {
-            textPaint.textSize=fontPixels
-            paint.style=Paint.Style.FILL;paint.color=Color.argb(210,5,2,15)
-            rows.forEach { row ->
-                val y=row.top-scrollYf
-                if(row.item is ScriptItem.Sentence && y+row.height>=0 && y<=height) {
-                    val layout=row.layout!!
-                    for(line in 0 until layout.lineCount) {
-                        val baseline=y+layout.getLineBaseline(line)
-                        canvas.drawRoundRect(left+layout.getLineLeft(line)-dp(3f),baseline+textPaint.ascent()-dp(2f),
-                            left+layout.getLineRight(line)+dp(3f),baseline+textPaint.descent()+dp(2f),dp(3f),dp(3f),paint)
-                    }
-                }
-                if(row.item is ScriptItem.Fixed && y+row.height>=0 && y<=height) {
-                    val fraction=timeline?.byId?.get(row.item.id)?.fraction(elapsed)?.toFloat() ?: 0f
-                    val rect=blockRect.apply { set(left,y+dp(8f),right,y+dp(56f)) }
-                    paint.color=track;canvas.drawRoundRect(rect,dp(7f),dp(7f),paint)
-                    canvas.save();canvas.clipRect(rect.left,rect.top,rect.left+rect.width()*fraction,rect.bottom)
-                    paint.color=Color.argb(100,45,134,221);canvas.drawRoundRect(rect,dp(7f),dp(7f),paint);canvas.restore()
-                    paint.color=Color.argb(210,5,2,15)
+        // Only changes that affect visible glyphs/plates invalidate their display lists.
+        // Effect animation time is deliberately absent: text is independent of the moving field.
+        var textKey=layoutRevision*31+scrollYf.toRawBits()
+        textKey=textKey*31+ink;textKey=textKey*31+muted;textKey=textKey*31+accent
+        textKey=textKey*31+track;textKey=textKey*31+if(chaos)1 else 0
+        var plateKey=textKey
+        rows.forEach { row ->
+            val y=row.top-scrollYf
+            if(y+row.height>=0 && y<=height) {
+                val item=row.item
+                val segment=timeline?.byId?.get(if(item is ScriptItem.Heading)"switch${item.slide}" else item.id)
+                if(item is ScriptItem.Sentence) {
+                    val state=if(segment!=null && elapsed>=segment.end && elapsed>0)2 else if(segment!=null && elapsed>=segment.start && elapsed<segment.end)1 else 0
+                    textKey=textKey*31+state
+                } else {
+                    val fraction=segment?.fraction(elapsed)?.toFloat() ?: 0f
+                    textKey=textKey*31+fraction.toRawBits()
+                    if(item is ScriptItem.Fixed)plateKey=plateKey*31+fraction.toRawBits()
                 }
             }
-            effectsRenderer.drawReaderMascots(canvas,width.toFloat(),height.toFloat(),density,effectTime(),effects)
         }
-        rows.forEach { row ->
-            val y = row.top - scrollYf
-            if (y + row.height < 0 || y > height) return@forEach
-            val item = row.item
-            when (item) {
-                is ScriptItem.Sentence -> {
-                    val segment = timeline?.byId?.get(item.id)
-                    val textColor = if (segment != null && elapsed >= segment.end && elapsed > 0) muted else ink
-                    textPaint.color = textColor
-                    textPaint.textSize = fontPixels
-                    canvas.save(); canvas.translate(left, y)
-                    val layout = row.layout!!
-                    if (chaos) {
-                        // Opaque outlined glyphs stay in front of the mascots as well as the other effects.
-                        textPaint.style = Paint.Style.STROKE; textPaint.strokeWidth = dp(2.5f); textPaint.color = Color.rgb(5, 2, 15)
-                        layout.draw(canvas)
-                        textPaint.style = Paint.Style.FILL; textPaint.color = textColor
-                    }
-                    layout.draw(canvas)
-                    if (segment != null && elapsed >= segment.start && elapsed < segment.end) {
-                        paint.color = accent; paint.strokeWidth = dp(1f)
-                        for (line in 0 until row.layout.lineCount) {
-                            val bottom = row.layout.getLineBaseline(line) + dp(4f)
-                            canvas.drawLine(row.layout.getLineLeft(line), bottom, row.layout.getLineRight(line), bottom, paint)
+        if(effects!=null) {
+            val recording=plates.beginIfChanged(canvas,width,height,plateKey)
+            if(recording!=null) {
+                val canvas=recording
+                textPaint.textSize=fontPixels
+                paint.style=Paint.Style.FILL;paint.color=Color.argb(210,5,2,15)
+                rows.forEach { row ->
+                    val y=row.top-scrollYf
+                    if(row.item is ScriptItem.Sentence && y+row.height>=0 && y<=height) {
+                        val layout=row.layout!!
+                        for(line in 0 until layout.lineCount) {
+                            val baseline=y+layout.getLineBaseline(line)
+                            canvas.drawRoundRect(left+layout.getLineLeft(line)-dp(3f),baseline+textPaint.ascent()-dp(2f),
+                                left+layout.getLineRight(line)+dp(3f),baseline+textPaint.descent()+dp(2f),dp(3f),dp(3f),paint)
                         }
                     }
-                    canvas.restore()
+                    if(row.item is ScriptItem.Fixed && y+row.height>=0 && y<=height) {
+                        val fraction=timeline?.byId?.get(row.item.id)?.fraction(elapsed)?.toFloat() ?: 0f
+                        val rect=blockRect.apply { set(left,y+dp(8f),right,y+dp(56f)) }
+                        paint.color=track;canvas.drawRoundRect(rect,dp(7f),dp(7f),paint)
+                        canvas.save();canvas.clipRect(rect.left,rect.top,rect.left+rect.width()*fraction,rect.bottom)
+                        paint.color=Color.argb(100,45,134,221);canvas.drawRoundRect(rect,dp(7f),dp(7f),paint);canvas.restore()
+                        paint.color=Color.argb(210,5,2,15)
+                    }
                 }
-                is ScriptItem.Heading -> {
-                    paint.color = accent; paint.textSize = sp(12f); paint.isFakeBoldText = false
-                    if (chaos) {
-                        paint.color = Color.rgb(5, 2, 15); paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(3f)
+                plates.endRecording()
+            }
+            plates.draw(canvas)
+            effectsRenderer.drawReaderMascots(canvas,width.toFloat(),height.toFloat(),density,effectNow(),effects)
+        }
+        val recording=foreground.beginIfChanged(canvas,width,height,textKey)
+        if(recording!=null) {
+            val canvas=recording
+            rows.forEach { row ->
+                val y = row.top - scrollYf
+                if (y + row.height < 0 || y > height) return@forEach
+                val item = row.item
+                when (item) {
+                    is ScriptItem.Sentence -> {
+                        val segment = timeline?.byId?.get(item.id)
+                        val textColor = if (segment != null && elapsed >= segment.end && elapsed > 0) muted else ink
+                        textPaint.color = textColor
+                        textPaint.textSize = fontPixels
+                        canvas.save(); canvas.translate(left, y)
+                        val layout = row.layout!!
+                        if (chaos) {
+                            // Opaque outlined glyphs stay in front of the mascots as well as the other effects.
+                            textPaint.style = Paint.Style.STROKE; textPaint.strokeWidth = dp(2.5f); textPaint.color = Color.rgb(5, 2, 15)
+                            layout.draw(canvas)
+                            textPaint.style = Paint.Style.FILL; textPaint.color = textColor
+                        }
+                        layout.draw(canvas)
+                        if (segment != null && elapsed >= segment.start && elapsed < segment.end) {
+                            paint.color = accent; paint.strokeWidth = dp(1f)
+                            for (line in 0 until row.layout.lineCount) {
+                                val bottom = row.layout.getLineBaseline(line) + dp(4f)
+                                canvas.drawLine(row.layout.getLineLeft(line), bottom, row.layout.getLineRight(line), bottom, paint)
+                            }
+                        }
+                        canvas.restore()
+                    }
+                    is ScriptItem.Heading -> {
+                        paint.color = accent; paint.textSize = sp(12f); paint.isFakeBoldText = false
+                        if (chaos) {
+                            paint.color = Color.rgb(5, 2, 15); paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(3f)
+                            canvas.drawText("#${item.slide}", left, y + dp(20f), paint)
+                            paint.style = Paint.Style.FILL; paint.color = accent
+                        }
                         canvas.drawText("#${item.slide}", left, y + dp(20f), paint)
-                        paint.style = Paint.Style.FILL; paint.color = accent
+                        if (item.slide > 1) {
+                            val segment = timeline?.byId?.get("switch${item.slide}")
+                            val f = segment?.fraction(elapsed)?.toFloat() ?: 0f
+                            paint.color = track; canvas.drawRect(left, y + dp(28f), right, y + dp(31f), paint)
+                            paint.color = accent; canvas.drawRect(left, y + dp(28f), left + (right - left) * f, y + dp(31f), paint)
+                        }
                     }
-                    canvas.drawText("#${item.slide}", left, y + dp(20f), paint)
-                    if (item.slide > 1) {
-                        val segment = timeline?.byId?.get("switch${item.slide}")
-                        val f = segment?.fraction(elapsed)?.toFloat() ?: 0f
-                        paint.color = track; canvas.drawRect(left, y + dp(28f), right, y + dp(31f), paint)
-                        paint.color = accent; canvas.drawRect(left, y + dp(28f), left + (right - left) * f, y + dp(31f), paint)
-                    }
-                }
-                is ScriptItem.Fixed -> {
-                    val segment = timeline?.byId?.get(item.id)
-                    val fraction = segment?.fraction(elapsed)?.toFloat() ?: 0f
-                    val rect = blockRect.apply { set(left, y + dp(8f), right, y + dp(56f)) }
-                    if(!chaos) {
-                        paint.color = track; canvas.drawRoundRect(rect, dp(7f), dp(7f), paint)
-                        canvas.save(); canvas.clipRect(rect.left, rect.top, rect.left + rect.width() * fraction, rect.bottom)
-                        paint.color = Color.argb(100, 45, 134, 221); canvas.drawRoundRect(rect, dp(7f), dp(7f), paint); canvas.restore()
-                    }
-                    paint.color = ink; paint.textSize = sp(13f)
-                    // Labels can be long: wrap in a compact layout rather than paint outside the bar.
-                    val label = row.blockLabelLayout!!
-                    label.paint.color = ink
-                    canvas.save(); canvas.clipRect(rect); canvas.translate(rect.left + dp(6f), rect.centerY() - label.height / 2f); label.draw(canvas); canvas.restore()
-                    paint.color = muted; paint.textSize = sp(11f)
-                    val seconds = item.seconds * fraction
-                    val status = "${(fraction * 100).roundToInt()}%    ${formatTime(seconds)} / ${formatTime(item.seconds)}"
-                    if (chaos) {
-                        paint.color = Color.rgb(5, 2, 15); paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(3f)
+                    is ScriptItem.Fixed -> {
+                        val segment = timeline?.byId?.get(item.id)
+                        val fraction = segment?.fraction(elapsed)?.toFloat() ?: 0f
+                        val rect = blockRect.apply { set(left, y + dp(8f), right, y + dp(56f)) }
+                        if(!chaos) {
+                            paint.color = track; canvas.drawRoundRect(rect, dp(7f), dp(7f), paint)
+                            canvas.save(); canvas.clipRect(rect.left, rect.top, rect.left + rect.width() * fraction, rect.bottom)
+                            paint.color = Color.argb(100, 45, 134, 221); canvas.drawRoundRect(rect, dp(7f), dp(7f), paint); canvas.restore()
+                        }
+                        paint.color = ink; paint.textSize = sp(13f)
+                        // Labels can be long: wrap in a compact layout rather than paint outside the bar.
+                        val label = row.blockLabelLayout!!
+                        label.paint.color = ink
+                        canvas.save(); canvas.clipRect(rect); canvas.translate(rect.left + dp(6f), rect.centerY() - label.height / 2f); label.draw(canvas); canvas.restore()
+                        paint.color = muted; paint.textSize = sp(11f)
+                        val seconds = item.seconds * fraction
+                        val status = "${(fraction * 100).roundToInt()}%    ${formatTime(seconds)} / ${formatTime(item.seconds)}"
+                        if (chaos) {
+                            paint.color = Color.rgb(5, 2, 15); paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(3f)
+                            canvas.drawText(status, left, y + dp(75f), paint)
+                            paint.style = Paint.Style.FILL; paint.color = muted
+                        }
                         canvas.drawText(status, left, y + dp(75f), paint)
-                        paint.style = Paint.Style.FILL; paint.color = muted
                     }
-                    canvas.drawText(status, left, y + dp(75f), paint)
                 }
             }
+            foreground.endRecording()
         }
+        foreground.draw(canvas)
         if (items.isNotEmpty()) {
             paint.color = red; paint.strokeWidth = dp(2f)
             val markerLeft = dp(if (scrollbar == ReaderScrollbarPosition.LEFT) 24f else 6f)

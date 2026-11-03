@@ -2,6 +2,7 @@ package jp.cn22.yomipace
 
 import android.graphics.RectF
 import android.os.SystemClock
+import android.view.Choreographer
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -19,8 +20,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlin.math.roundToInt
+
+
+private data class EffectConfiguration(val enabled: Boolean,val vibration: Boolean,val running: Boolean,
+    val level: DopamineLevel,val beat: Boolean,val shade: Int,val slide: Int,val slides: Int)
 
 private val LocalEffectWindows = compositionLocalOf<MutableMap<String, Rect>?> { null }
 
@@ -37,33 +42,53 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
     val engine = vm.dopamine
     val available = vm.effectsForeground && !suspended && !vm.busy
     val enabled = vm.dopamineMode
-    // Read snapshot state in composition. Reads inside SideEffect do not subscribe this
-    // composable, so child clock redraws alone previously left the engine at its old level.
     val running = vm.running
-    val level = DopamineLevel.at(vm.elapsed, vm.totalSeconds, vm.dopamineStrength, vm.dopamineRise)
-    val vibration = vm.dopamineVibration
-    val beat = vm.dopamineBeat
-    val shade = vm.dopamineShade
-    val slideNumber = vm.currentSlide
-    val slideCount = vm.deck?.images?.size ?: 0
-    val readerRegion = windows["reader"]?.takeIf { root.width > 0 && root.height > 0 && it.width > 0 && it.height > 0 }?.let {
-        DopamineRegion((it.left - root.left) / root.width, (it.top - root.top) / root.height, it.width / root.width, it.height / root.height)
+    val measuredWindows = windows.toMap()
+    val geometry = remember(root,measuredWindows) {
+        fun regions(slides: Boolean) = measuredWindows.filter { (key,r) -> key.startsWith("slide-")==slides && r.width>0 && r.height>0 }.values.map {
+            RectF(it.left-root.left,it.top-root.top,it.right-root.left,it.bottom-root.top)
+        }
+        regions(false) to regions(true)
     }
-    SideEffect {
-        engine.configure(enabled, vibration, available, running, level, beat)
-        engine.slideNumber = slideNumber; engine.slideCount = slideCount
-        engine.shade = shade; engine.readerRegion = readerRegion
+    val readerRegion = measuredWindows["reader"]?.takeIf { root.width>0 && root.height>0 && it.width>0 && it.height>0 }?.let {
+        DopamineRegion((it.left-root.left)/root.width,(it.top-root.top)/root.height,it.width/root.width,it.height/root.height)
+    }
+    SideEffect { engine.readerRegion=readerRegion }
+    val frameTime=remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    // snapshotFlow observes live clock state without recomposing the whole stage every 50 ms.
+    LaunchedEffect(engine,available) {
+        snapshotFlow {
+            EffectConfiguration(vm.dopamineMode,vm.dopamineVibration,vm.running,
+                DopamineLevel.at(if(vm.dopamineMode)vm.elapsed else 0.0,vm.totalSeconds,vm.dopamineStrength,vm.dopamineRise),
+                vm.dopamineBeat,vm.dopamineShade,vm.currentSlide,vm.deck?.images?.size ?: 0)
+        }.collect { c ->
+            engine.configure(c.enabled,c.vibration,available,c.running,c.level,c.beat)
+            engine.shade=c.shade;engine.slideNumber=c.slide;engine.slideCount=c.slides
+            if(!c.enabled || !available || !c.running) {
+                val now=SystemClock.elapsedRealtime();engine.dispatchFrame(now);frameTime.longValue=now
+            }
+        }
     }
     DisposableEffect(engine) { onDispose { engine.reset(); engine.available = false } }
-    val frameTime = remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
-    LaunchedEffect(enabled, available, running) {
-        if (enabled && available) while (true) {
-            val now = SystemClock.elapsedRealtime()
-            val hadBursts = engine.bursts.isNotEmpty()
-            engine.tick(now)
-            if (running || hadBursts || engine.bursts.isNotEmpty()) frameTime.longValue = now
-            delay(33) // Bound animation to about 30 fps, including on high refresh-rate phones.
+    DisposableEffect(enabled,available,running) {
+        val choreographer=Choreographer.getInstance()
+        val callback=object:Choreographer.FrameCallback {
+            var lastFrame=Long.MIN_VALUE
+            override fun doFrame(frame: Long) {
+                // Use display VSYNC rather than an independent 33 ms timer.
+                if(lastFrame==Long.MIN_VALUE || frame-lastFrame>=16_000_000L) {
+                    lastFrame=frame
+                    val now=SystemClock.elapsedRealtime();val hadBursts=engine.bursts.isNotEmpty()
+                    engine.tick(now)
+                    if(running || hadBursts || engine.bursts.isNotEmpty()) {
+                        engine.dispatchFrame(now);frameTime.longValue=now
+                    }
+                }
+                choreographer.postFrameCallbackDelayed(this,1)
+            }
         }
+        if(enabled && available)choreographer.postFrameCallback(callback)
+        onDispose { choreographer.removeFrameCallback(callback) }
     }
     CompositionLocalProvider(LocalEffectWindows provides windows) {
         Box(Modifier.fillMaxSize().onGloballyPositioned { root = it.boundsInRoot() }
@@ -80,10 +105,7 @@ internal fun Modifier.effectWindow(key: String): Modifier = composed {
             }) {
             content()
             if (enabled && available) Canvas(Modifier.matchParentSize().testTag("dopamine-effects")) {
-                fun regions(slides: Boolean) = windows.filter { (key, rect) -> key.startsWith("slide-") == slides && rect.width > 0 && rect.height > 0 }.values.map {
-                    RectF(it.left - root.left, it.top - root.top, it.right - root.left, it.bottom - root.top)
-                }
-                renderer.draw(drawContext.canvas.nativeCanvas, size.width, size.height, density, frameTime.longValue, engine, regions(false), regions(true))
+                renderer.draw(drawContext.canvas.nativeCanvas,size.width,size.height,density,frameTime.longValue,engine,geometry.first,geometry.second)
             }
         }
     }

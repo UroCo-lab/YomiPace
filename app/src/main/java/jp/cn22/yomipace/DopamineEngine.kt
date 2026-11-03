@@ -61,6 +61,14 @@ internal class DopamineEngine(private val pulse: (Float) -> Unit, private val ca
     var vibrationBeat = true
     var shade = 0
     var readerRegion: DopamineRegion? = null
+    var frameTime=0L;private set
+    private val frameListeners=mutableListOf<()->Unit>()
+    fun addFrameListener(listener: ()->Unit) { if(listener !in frameListeners)frameListeners.add(listener) }
+    fun removeFrameListener(listener: ()->Unit) { frameListeners.remove(listener) }
+    fun dispatchFrame(now: Long) {
+        frameTime=now
+        frameListeners.forEach { it() }
+    }
     var available = false
     var running = false
     var slideNumber = 1

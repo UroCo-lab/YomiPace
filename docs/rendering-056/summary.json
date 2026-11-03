@@ -1,0 +1,38 @@
+{
+  "method": "Same-host Robolectric native software Canvas, not physical-device FPS",
+  "viewport": "1080x1200",
+  "results": [
+    {
+      "energy": 0.47116667,
+      "shade": 0,
+      "frames_per_implementation": 40,
+      "before_median_ms": 13.9282,
+      "after_median_ms": 10.275549999999999,
+      "reduction_percent": 26.224853175571873
+    },
+    {
+      "energy": 0.47116667,
+      "shade": 70,
+      "frames_per_implementation": 40,
+      "before_median_ms": 23.0663,
+      "after_median_ms": 10.8889,
+      "reduction_percent": 52.79303572744654
+    },
+    {
+      "energy": 1.0,
+      "shade": 0,
+      "frames_per_implementation": 40,
+      "before_median_ms": 22.081249999999997,
+      "after_median_ms": 20.242150000000002,
+      "reduction_percent": 8.32878573450323
+    },
+    {
+      "energy": 1.0,
+      "shade": 70,
+      "frames_per_implementation": 40,
+      "before_median_ms": 29.80075,
+      "after_median_ms": 21.4833,
+      "reduction_percent": 27.91020360225833
+    }
+  ]
+}
