@@ -111,7 +111,8 @@ class SlideLibraryOperationsTest {
     @Test fun duplicateIsIndependentRetainsSavedEditsAndNeverSwitchesActivePresentation() {
         val vm = model(); val id = load(vm); val c = edit(vm, id); c.removeSlide(0); c.save(closeAfter = true); waitFor { !vm.busy }
         val before = originals(id); val source = store.load(id); val active = vm.deck; vm.seekTo(66.0)
-        vm.duplicateArchived(id); waitFor { !vm.busy }; assertNull(vm.message); assertSame(active, vm.deck); assertEquals(66.0, vm.elapsed, 0.0)
+        vm.duplicateArchived(id); assertTrue(vm.libraryBusy); assertEquals("複製を作成中…", vm.libraryWorkLabel)
+        waitFor { !vm.busy }; assertNull(vm.libraryWorkLabel); assertNull(vm.message); assertSame(active, vm.deck); assertEquals(66.0, vm.elapsed, 0.0)
         val copyId = vm.archives.single { it.id != id }.id; val copy = store.load(copyId)
         assertEquals(source.source, copy.source); assertEquals(source.entry.totalSeconds, copy.entry.totalSeconds)
         assertEquals(source.entry.imageCount, copy.entry.imageCount); assertTrue(copy.entry.name.endsWith("（コピー）"))
@@ -122,7 +123,9 @@ class SlideLibraryOperationsTest {
     }
     @Test fun shareIntentGrantsReadAccessToOnlyThePortableZipAndTrashCannotBeShared() {
         val vm = model(); val id = load(vm); var zip: File? = null
-        vm.shareArchived(id) { zip = it }; waitFor { !vm.busy }; assertNotNull(zip)
+        vm.shareArchived(id) { assertTrue(vm.libraryBusy); zip = it }
+        assertTrue(vm.libraryBusy); assertEquals("共有用ZIPを作成中…", vm.libraryWorkLabel)
+        waitFor { !vm.busy }; assertNull(vm.libraryWorkLabel); assertNotNull(zip)
         val send = DeckTransfer.shareIntent(app, zip!!); assertEquals(Intent.ACTION_SEND, send.action); assertEquals("application/zip", send.type)
         val uri = send.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)!!
         assertEquals("content", uri.scheme); assertEquals("${app.packageName}.files", uri.authority)
@@ -135,5 +138,23 @@ class SlideLibraryOperationsTest {
         } catch (_: IllegalArgumentException) { }
         vm.moveToTrash(id); waitFor { !vm.busy }; var shared = false
         vm.shareArchived(id) { shared = true }; waitFor { !vm.busy }; assertFalse(shared); assertNotNull(vm.message)
+        assertNull(vm.libraryWorkLabel)
+    }
+    @Test fun failedTransferClearsWorkStateAndAllowsRetryWithoutStartingDuplicateWork() {
+        val vm = model(); val id = load(vm); val count = vm.archives.size
+        vm.duplicateArchived("invalid-id")
+        assertTrue(vm.libraryBusy); assertEquals("複製を作成中…", vm.libraryWorkLabel)
+        var called = false
+        vm.shareArchived(id) { called = true } // A second tap cannot change the active operation.
+        assertEquals("複製を作成中…", vm.libraryWorkLabel)
+        waitFor { !vm.busy }; assertFalse(called); assertNotNull(vm.message); assertNull(vm.libraryWorkLabel)
+        assertEquals(count, vm.archives.size)
+        vm.message = null
+        vm.shareArchived(id) { throw IllegalStateException("共有先を開けません。") }
+        assertEquals("共有用ZIPを作成中…", vm.libraryWorkLabel)
+        waitFor { !vm.busy }; assertEquals("共有先を開けません。", vm.message); assertNull(vm.libraryWorkLabel)
+        vm.message = null
+        vm.duplicateArchived(id); waitFor { !vm.busy }
+        assertNull(vm.message); assertNull(vm.libraryWorkLabel); assertEquals(count + 1, vm.archives.size)
     }
 }

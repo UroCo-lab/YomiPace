@@ -1,5 +1,7 @@
 # YomiPace
 
+**0.8.1**：アーカイブで複製やZIP共有を準備している間、画面下に回転するインジケーターと操作名を表示します。一覧をスクロールしても表示が残り、処理が終わると消えます。[Release](https://github.com/UroCo-lab/YomiPace/releases/tag/v0.8.1)・[変更と検証](docs/0.8.1_アーカイブの作業中表示.md)。
+
 **0.8.0**：「スライド編集」で追加・削除・並び替えに対応し、削除時には確認します。アーカイブに「複製」と「ZIP共有」を追加。編集前に複製して元を残し、編集後の画像・原稿・時間をZIPで他アプリへ渡せます。初回ガイドは19枚・9分30秒へ更新。[Release](https://github.com/UroCo-lab/YomiPace/releases/tag/v0.8.0)・[操作説明](docs/操作説明.md)・[変更と検証](docs/0.8.0_スライド編集と複製ZIP共有.md)。
 
 原稿の作成→複製してバックアップ→スライド編集→ZIP共有をまとめた[30秒解説動画](https://github.com/UroCo-lab/YomiPace/releases/download/v0.8.0/YomiPace-0.8.0-create-edit-copy-share-30s.mp4)・[無音版](https://github.com/UroCo-lab/YomiPace/releases/download/v0.8.0/YomiPace-0.8.0-create-edit-copy-share-30s-silent.mp4)・[一覧画像](https://github.com/UroCo-lab/YomiPace/releases/download/v0.8.0/YomiPace-0.8.0-overview.png)も配布します。

@@ -86,6 +86,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var archives by mutableStateOf<List<DeckSummary>>(emptyList()); private set
     var trash by mutableStateOf<List<DeckSummary>>(emptyList()); private set
     var libraryBusy by mutableStateOf(false); private set
+    var libraryWorkLabel by mutableStateOf<String?>(null); private set
     var libraryNotice by mutableStateOf<String?>(null); private set
     var editorBusy by mutableStateOf(false); private set
     var editorDraft by mutableStateOf<String?>(null); private set
@@ -305,22 +306,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun restoreFromTrash(id: String) = libraryAction { withContext(Dispatchers.IO) { store.move(id, DeckLocation.ARCHIVE) } }
     fun deletePermanently(id: String) = libraryAction { withContext(Dispatchers.IO) { store.deletePermanently(id) } }
-    fun duplicateArchived(id: String) = libraryAction {
+    fun duplicateArchived(id: String) = libraryAction("複製を作成中…") {
         val copy = withContext(Dispatchers.IO) { DeckTransfer.duplicate(getApplication(), store, store.load(id)) }
         libraryNotice = "「${copy.entry.name}」を作成しました。複製の鉛筆から編集できます。"
     }
-    fun shareArchived(id: String, ready: (File) -> Unit) = libraryAction {
+    fun shareArchived(id: String, ready: (File) -> Unit) = libraryAction("共有用ZIPを作成中…") {
         val zip = withContext(Dispatchers.IO) { DeckTransfer.export(getApplication(), store.load(id)) }
         ready(zip)
     }
-    private fun libraryAction(action: suspend () -> Unit) {
+    private fun libraryAction(label: String = "処理中…", action: suspend () -> Unit) {
         if (running) { message = "停止してから資料を操作してください。"; return }
         if (busy || editorDraft != null || creator.visible) return
         libraryNotice = null
+        libraryWorkLabel = label
         libraryBusy = true
         viewModelScope.launch {
             try { action(); refreshLibrary() } catch (e: Exception) { message = e.message ?: "資料を操作できませんでした。" }
-            finally { libraryBusy = false }
+            finally { libraryBusy = false; libraryWorkLabel = null }
         }
     }
     fun beginScriptEdit(id: String? = deck?.directory?.name) {

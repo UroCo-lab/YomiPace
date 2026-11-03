@@ -99,19 +99,42 @@ private data class EditorHolder(val frame: ManagementFrame, val input: EditText,
     val holder = remember(context, location, dark) {
         val isTrash = location == DeckLocation.TRASH
         val frame = ManagementFrame(context, dark, if (isTrash) "ゴミ箱" else "アーカイブ")
-        frame.toolbar.addView(frame.button(if (isTrash) "アーカイブ" else "ゴミ箱") { vm.showLibrary(if (isTrash) DeckLocation.ARCHIVE else DeckLocation.TRASH) })
-        frame.toolbar.addView(frame.button("閉じる", vm::closeLibrary))
+        val switch = frame.button(if (isTrash) "アーカイブ" else "ゴミ箱") { vm.showLibrary(if (isTrash) DeckLocation.ARCHIVE else DeckLocation.TRASH) }
+        val close = frame.button("閉じる", vm::closeLibrary)
+        frame.toolbar.addView(switch); frame.toolbar.addView(close)
         frame.root.addView(frame.label(if (isTrash) "復元するとアーカイブへ戻ります。ここからの削除は完全削除です。" else "編集前に「複製」でバックアップを残せます。鉛筆で編集し、保存済みの内容をZIP共有できます。"))
         val status = frame.label(""); frame.root.addView(status)
         val list = LinearLayout(frame.context).apply { orientation = LinearLayout.VERTICAL }
         frame.root.addView(ScrollView(frame.context).apply { addView(list) }, LinearLayout.LayoutParams(-1, 0, 1f))
+        // Keep this outside the scrollable list so long archives cannot hide ongoing work.
+        val workText = frame.label("", frame.ink).apply {
+            textSize = 14f; accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            tag = "archive-work-text"
+        }
+        val progress = ProgressBar(frame.context).apply {
+            isIndeterminate = true; indeterminateTintList = android.content.res.ColorStateList.valueOf(frame.blue)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            tag = "archive-work-spinner"
+        }
+        val work = LinearLayout(frame.context).apply {
+            tag = "archive-work"; gravity = Gravity.CENTER_VERTICAL
+            setPadding(frame.px(16), frame.px(12), frame.px(16), frame.px(12))
+            addView(progress, LinearLayout.LayoutParams(frame.px(36), frame.px(36)))
+            addView(workText, LinearLayout.LayoutParams(0, -2, 1f))
+            visibility = View.GONE
+        }
+        frame.root.addView(work)
         frame.dialog.setOnCancelListener { vm.closeLibrary() }
-        ArchiveHolder(frame, list, status)
+        ArchiveHolder(frame, list, status, work, workText, listOf(switch, close))
     }
     val entries = if (location == DeckLocation.TRASH) vm.trash else vm.archives
     val busy = vm.busy
     SideEffect {
-        holder.status.text = if (busy) "処理中…" else vm.libraryNotice ?: if (entries.isEmpty()) "資料はありません。" else "${entries.size}件"
+        val workLabel = vm.libraryWorkLabel ?: "処理中…"
+        holder.status.text = if (busy) workLabel else vm.libraryNotice ?: if (entries.isEmpty()) "資料はありません。" else "${entries.size}件"
+        holder.workText.text = if (busy) "$workLabel\n完了までお待ちください。" else ""
+        holder.work.visibility = if (busy) View.VISIBLE else View.GONE
+        holder.toolbarButtons.forEach { it.isEnabled = !busy }
         if (holder.rendered != entries || holder.busy != busy) {
             holder.rendered = entries; holder.busy = busy; holder.list.removeAllViews()
             entries.forEach { entry ->
@@ -151,7 +174,8 @@ private data class EditorHolder(val frame: ManagementFrame, val input: EditText,
     }
     DisposableEffect(holder) { holder.frame.show(); onDispose { holder.frame.dialog.setOnCancelListener(null); holder.frame.dialog.dismiss() } }
 }
-private class ArchiveHolder(val frame: ManagementFrame, val list: LinearLayout, val status: TextView) {
+private class ArchiveHolder(val frame: ManagementFrame, val list: LinearLayout, val status: TextView,
+    val work: View, val workText: TextView, val toolbarButtons: List<Button>) {
     var rendered: List<DeckSummary>? = null
     var busy = false
 }
