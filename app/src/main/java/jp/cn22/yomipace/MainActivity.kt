@@ -97,7 +97,7 @@ fun YomiPaceScreen(vm: AppViewModel, dark: Boolean, foldMainScreen: Boolean = fa
         if (vm.running) vm.message = "ZIPを開く前に時計を停止してください。"
         else if (!vm.importing) picker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
     }
-    DopamineStage(vm, dialog != null || menuOpen || vm.libraryLocation != null || vm.editorDraft != null || vm.message != null) {
+    DopamineStage(vm, dialog != null || menuOpen || vm.libraryLocation != null || vm.editorDraft != null || vm.creator.visible || vm.message != null) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
             Row(Modifier.fillMaxWidth().height(30.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -158,6 +158,7 @@ fun YomiPaceScreen(vm: AppViewModel, dark: Boolean, foldMainScreen: Boolean = fa
     }
     vm.libraryLocation?.let { ArchiveDialog(vm, it, dark) }
     if (vm.editorDraft != null) ScriptEditorDialog(vm, dark)
+    if (vm.creator.visible) ScriptCreationScreen(vm.creator)
     vm.message?.let { msg -> AlertDialog(onDismissRequest = { vm.message = null }, title = { Text("お知らせ") }, text = { Text(msg, modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) }, confirmButton = { TextButton(onClick = { vm.message = null }) { Text("閉じる") } }) }
 }
 
@@ -186,6 +187,7 @@ private fun ReaderColumn(vm: AppViewModel, dark: Boolean, modifier: Modifier, sh
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(text = { Text("ZIPを開く") }, enabled = !vm.importing, onClick = { menu = false; openZip() })
                     DropdownMenuItem(text = { Text("読み上げ原稿の編集") }, enabled = vm.deck != null && !vm.busy, onClick = { menu = false; vm.beginScriptEdit() })
+                    DropdownMenuItem(text = { Text("読み上げ原稿作成") }, enabled = !vm.busy, onClick = { menu = false; vm.beginScriptCreation() })
                     DropdownMenuItem(text = { Text("アーカイブ") }, enabled = !vm.busy, onClick = { menu = false; vm.showLibrary(DeckLocation.ARCHIVE) })
                     DropdownMenuItem(text = { Text("ゴミ箱") }, enabled = !vm.busy, onClick = { menu = false; vm.showLibrary(DeckLocation.TRASH) })
                     DropdownMenuItem(text = { Text("グレー表示のバイブ") }, onClick = { menu = false; show("vibration") })
@@ -496,6 +498,8 @@ timeは先頭に1回。省略時・不正時はメニューの「持ち時間」
 上限：画像200枚、1画像24MiB・40MP、原稿2MiB、展開合計256MiB。
 
 7. 原稿編集とアーカイブ
+アーカイブの鉛筆から、タイトル・時間指定・スライド順・原稿編集の4ボタンがある管理ページを開けます。新規の画像生成後も同じページです。原稿編集画面には資料名の欄を表示しません。スライド順の↑↓で画像と対応する原稿・メモ・時間区間を一緒に移動し、##番号を振り直します。変更は保存でまとめて確定し、保存しない場合は並び順も保持します。管理へ戻るで各設定へ戻れます。元画像と元ZIPは変更しません。
+画像から作る場合は停止中に「読み上げ原稿作成」→「画像選択」。画像を追加・削除・↑↓で並び替えて「生成」すると、元画像を変えずにPNG連番をアーカイブへコピーします。管理ページの時間指定で発表時間を分・秒で指定するか「未定（あとで設定）」を選びます。設定時間は保存時に資料と原稿へ反映し、未定なら時間指定を入れません。あとから資料を開いて「持ち時間」で設定・変更できます。上のスライドを見ながら下の原稿欄へ入力し、前へ／次へでページを移動します。##番号は自動です。間の文字列ボタンはカーソル位置へ挿入し、右端の⋮で内容・個数・順番を編集、適用して保存できます。時間区間のmm:ssは有効な時間へ書き換えて単独行に置き、**は行頭に置きます。下の保存は全ページの下書き保存で、空のページも残せます。未保存で閉じると保存する／保存しない／キャンセルを選びます。生成済み画像と最後の保存原稿はアーカイブに残ります。アーカイブから開き、持ち時間を設定して練習します。未保存の内容はOSによるアプリ終了では失われます。
 停止中にメニュー「読み上げ原稿の編集」で全文を編集し、保存します。書式・画像番号・時間配分に誤りがあれば保存せず行番号等を知らせます。timeを明示的に変更した場合は持ち時間に反映し、本文だけの編集では画面の持ち時間を保ちます。経過時間を保ち、編集で同じ箇所を特定できない場合は現在スライドの先頭へ戻します。元ZIPは変更しません。
 読み込んだZIPはアプリ内アーカイブに保存します。各資料の「開く」、鉛筆の編集、ゴミ箱ボタンを使えます。ゴミ箱からは復元、または確認後に完全削除できます。旧版の資料は残っている表示用データを引き継ぎます。
 

@@ -2,6 +2,7 @@ package jp.cn22.yomipace
 
 import jp.cn22.yomipace.core.*
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.File
 import java.io.IOException
 import java.io.FileOutputStream
@@ -11,7 +12,7 @@ import java.nio.file.StandardCopyOption
 enum class DeckLocation { ARCHIVE, TRASH }
 data class DeckEntry(val id: String, val name: String, val imageCount: Int, val createdAt: Long, val modifiedAt: Long,
     val location: DeckLocation = DeckLocation.ARCHIVE, val trashedAt: Long? = null, val totalSeconds: Double? = null,
-    val scriptOverride: String? = null)
+    val scriptOverride: String? = null, val imageOrder: List<Int>? = null)
 data class StoredDeck(val entry: DeckEntry, val deck: ImportedDeck, val source: String)
 data class DeckSummary(val id: String, val name: String, val imageCount: Int, val modifiedAt: Long, val edited: Boolean)
 
@@ -26,12 +27,14 @@ class DeckStore(private val root: File) {
         val json = JSONObject(File(directory(id), "entry.json").readText(Charsets.UTF_8))
         return DeckEntry(id, json.getString("name"), json.getInt("imageCount"), json.getLong("createdAt"), json.getLong("modifiedAt"),
             DeckLocation.valueOf(json.getString("location")), if (json.isNull("trashedAt")) null else json.getLong("trashedAt"),
-            if (json.isNull("totalSeconds")) null else json.getDouble("totalSeconds"), if (json.isNull("scriptOverride")) null else json.getString("scriptOverride"))
+            if (json.isNull("totalSeconds")) null else json.getDouble("totalSeconds"), if (json.isNull("scriptOverride")) null else json.getString("scriptOverride"),
+            json.optJSONArray("imageOrder")?.let { order -> List(order.length()) { order.getInt(it) } })
     }
     @Synchronized fun write(entry: DeckEntry) {
         val json = JSONObject().put("name", entry.name).put("imageCount", entry.imageCount).put("createdAt", entry.createdAt)
             .put("modifiedAt", entry.modifiedAt).put("location", entry.location.name).put("trashedAt", entry.trashedAt ?: JSONObject.NULL)
             .put("totalSeconds", entry.totalSeconds ?: JSONObject.NULL).put("scriptOverride", entry.scriptOverride ?: JSONObject.NULL)
+            .put("imageOrder", entry.imageOrder?.let { JSONArray(it) } ?: JSONObject.NULL)
         val target = File(directory(entry.id), "entry.json")
         val pending = File(directory(entry.id), "entry.json.pending")
         try {
@@ -58,13 +61,15 @@ class DeckStore(private val root: File) {
             "保存資料の画像番号が001から連続していません。元のZIPから読み込み直してください。"
         }
         require(script.fatalIssues.isEmpty() && images.size == entry.imageCount && script.slides == (1..images.size).toList()) { "保存資料を読み取れません。" }
-        return StoredDeck(entry, ImportedDeck(dir, images, script, entry.name), source)
+        val order = entry.imageOrder ?: (1..images.size).toList()
+        require(order.sorted() == (1..images.size).toList()) { "保存資料のスライド順が不正です。" }
+        return StoredDeck(entry, ImportedDeck(dir, order.map { images[it - 1] }, script, entry.name), source)
     }
     @Synchronized fun summaries(location: DeckLocation): List<DeckSummary> = root.listFiles().orEmpty()
         .filter { it.isDirectory && Regex("deck-[a-f0-9-]+").matches(it.name) }
         .mapNotNull { dir -> runCatching { read(dir.name) }.getOrNull() }
         .filter { it.location == location }.sortedByDescending { it.modifiedAt }
-        .map { DeckSummary(it.id, it.name, it.imageCount, it.modifiedAt, it.scriptOverride != null) }
+        .map { DeckSummary(it.id, it.name, it.imageCount, it.modifiedAt, it.scriptOverride != null || it.imageOrder != null) }
     @Synchronized fun move(id: String, location: DeckLocation) {
         val now = System.currentTimeMillis()
         write(read(id).copy(location = location, modifiedAt = now, trashedAt = if (location == DeckLocation.TRASH) now else null))

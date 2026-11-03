@@ -92,7 +92,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var editorOriginal: StoredDeck? = null
     val editorName get() = editorOriginal?.entry?.name.orEmpty()
     val editorDirty get() = editorDraft != null && editorDraft != editorOriginal?.source
-    val busy get() = importing || libraryBusy || editorBusy
+    internal val creator = ScriptCreationModel(application, viewModelScope) { saved, previous ->
+        if (previous != null && deck?.directory?.name == saved.entry.id) {
+            val oldOrder = previous.entry.imageOrder ?: (1..previous.entry.imageCount).toList()
+            val newOrder = saved.entry.imageOrder ?: (1..saved.entry.imageCount).toList()
+            val physicalSlide = oldOrder[(currentSlide - 1).coerceIn(oldOrder.indices)]
+            val newSlide = newOrder.indexOf(physicalSlide) + 1
+            anchor = ScriptEditing.relocate(previous.deck.script, saved.deck.script, anchor, newSlide)
+            currentSlide = newSlide; deck = saved.deck; totalSeconds = saved.entry.totalSeconds; rebuild(); persist()
+        }
+        refreshLibrary()
+    }
+    val busy get() = importing || libraryBusy || editorBusy || creator.busy
     var vibrationEnabled by mutableStateOf(prefs.getBoolean("vibrationEnabled", true)); private set
     var vibrationStrength by mutableIntStateOf(prefs.getInt("vibrationStrength", 1).coerceIn(0, 2)); private set
     var anchor by mutableStateOf(ReadingAnchor()); private set
@@ -136,6 +147,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val startProblem: String? get() {
         if (busy) return "資料を処理中です。"
         if (editorDraft != null) return "原稿の編集を閉じてから再生してください。"
+        if (creator.visible) return "原稿の作成を閉じてから再生してください。"
         return budgetProblem
     }
     private fun rebuild() {
@@ -313,6 +325,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val loaded = withContext(Dispatchers.IO) { store.load(id).also { require(it.entry.location == DeckLocation.ARCHIVE) { "ゴミ箱の資料は復元してから編集してください。" } } }
                 editorOriginal = loaded; editorError = null; editorDraft = loaded.source
             } catch (e: Exception) { message = e.message ?: "原稿を開けませんでした。" }
+            finally { editorBusy = false }
+        }
+    }
+    fun beginScriptCreation() {
+        if (running) { message = "停止してから読み上げ原稿を作成してください。"; return }
+        if (!busy && editorDraft == null) creator.open()
+    }
+    fun beginArchivedEdit(id: String) {
+        if (running) { message = "停止してから読み上げ原稿を編集してください。"; return }
+        if (busy || editorDraft != null || creator.visible) return
+        editorBusy = true
+        viewModelScope.launch {
+            try {
+                val loaded = withContext(Dispatchers.IO) { store.load(id) }
+                creator.openExisting(loaded); libraryLocation = null
+            } catch (e: Exception) { message = e.message ?: "資料を編集できませんでした。" }
             finally { editorBusy = false }
         }
     }

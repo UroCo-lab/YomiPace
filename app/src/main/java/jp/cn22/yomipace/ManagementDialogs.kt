@@ -21,7 +21,7 @@ import androidx.core.view.WindowInsetsCompat
 import java.text.DateFormat
 import java.util.Date
 
-private class ManagementFrame(base: Context, dark: Boolean, title: String) {
+internal class ManagementFrame(base: Context, dark: Boolean, title: String) {
     val context = android.view.ContextThemeWrapper(base, if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
     val dialog = Dialog(context)
     val ink = if (dark) Color.rgb(237, 241, 245) else Color.rgb(23, 33, 43)
@@ -128,7 +128,7 @@ private data class EditorHolder(val frame: ManagementFrame, val input: EditText,
                 }
                 if (location == DeckLocation.ARCHIVE) {
                     actions.addView(frame.button("開く") { vm.openArchived(entry.id) }.apply { isEnabled = !busy; contentDescription = "開く：${entry.name}" })
-                    actions.addView(icon(android.R.drawable.ic_menu_edit, "原稿を編集：${entry.name}") { vm.beginScriptEdit(entry.id) })
+                    actions.addView(icon(android.R.drawable.ic_menu_edit, "原稿を編集：${entry.name}") { vm.beginArchivedEdit(entry.id) })
                     actions.addView(icon(android.R.drawable.ic_menu_delete, "ゴミ箱へ：${entry.name}") { vm.moveToTrash(entry.id) })
                 } else {
                     actions.addView(frame.button("復元") { vm.restoreFromTrash(entry.id) }.apply { isEnabled = !busy; contentDescription = "復元：${entry.name}" })

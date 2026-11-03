@@ -38,6 +38,7 @@ AndroidXの著作者はThe Android Open Source Project、Kotlin・kotlinx・JetB
 | `androidx.core:core:1.13.1` | Apache-2.0 | [Apache-2.0](licenses/Apache-2.0.txt) |
 | `androidx.customview:customview-poolingcontainer:1.0.0` | Apache-2.0 | [Apache-2.0](licenses/Apache-2.0.txt) |
 | `androidx.emoji2:emoji2:1.4.0` | Apache-2.0 | [Apache-2.0](licenses/Apache-2.0.txt) |
+| `androidx.exifinterface:exifinterface:1.4.2` | Apache-2.0 | [原文](licenses/embedded/androidx.exifinterface.exifinterface-1.4.2--META-INF_androidx_exifinterface_exifinterface_LICENSE.txt) |
 | `androidx.graphics:graphics-path:1.0.1` | Apache-2.0 | [Apache-2.0](licenses/Apache-2.0.txt) |
 | `androidx.interpolator:interpolator:1.0.0` | Apache-2.0 | [Apache-2.0](licenses/Apache-2.0.txt) |
 | `androidx.lifecycle:lifecycle-common-java8:2.8.7` | Apache-2.0 | [Apache-2.0](licenses/Apache-2.0.txt) |

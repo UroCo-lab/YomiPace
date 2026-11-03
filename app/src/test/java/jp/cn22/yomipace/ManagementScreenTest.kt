@@ -90,12 +90,16 @@ class ManagementScreenTest {
     @Test fun archivePencilTrashRestoreAndConfirmedPurgeAreUsable() {
         val vm = load(); val id = vm.deck!!.directory.name; val name = vm.deck!!.name
         menu("アーカイブ"); rule.waitForIdle()
-        val archive = ShadowDialog.getLatestDialog()
+        var archive = ShadowDialog.getLatestDialog()
         capture(archive, "archive-360x840")
         rule.runOnUiThread { action(archive, "原稿を編集：$name", id).performClick() }
-        waitFor { vm.editorDraft != null && !vm.busy }; rule.waitForIdle()
-        assertNotNull(ShadowDialog.getLatestDialog().findViewById<EditText>(android.R.id.edit))
-        rule.runOnUiThread { vm.closeEditor() }; rule.waitForIdle()
+        waitFor { vm.creator.visible && !vm.busy }; rule.waitForIdle()
+        rule.onNodeWithTag("creation-hub").assertIsDisplayed()
+        rule.onNodeWithTag("creation-hub-script").performClick()
+        rule.onNodeWithTag("creation-script").assertIsDisplayed()
+        rule.onNodeWithTag("creation-name").assertDoesNotExist()
+        rule.runOnUiThread { vm.creator.close(); vm.showLibrary(DeckLocation.ARCHIVE) }; rule.waitForIdle()
+        archive = ShadowDialog.getLatestDialog()
         rule.runOnUiThread { action(archive, "ゴミ箱へ：$name", id).performClick() }
         waitFor { !vm.busy && vm.trash.any { it.id == id } }; rule.waitForIdle()
         rule.runOnUiThread { button(archive, "ゴミ箱").performClick() }; rule.waitForIdle()

@@ -11,8 +11,8 @@ android {
         applicationId = "jp.cn22.yomipace"
         minSdk = 26
         targetSdk = 36
-        versionCode = 21
-        versionName = "0.5.7"
+        versionCode = 24
+        versionName = "0.7.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -41,6 +41,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.window:window:1.4.0")
+    implementation("androidx.exifinterface:exifinterface:1.4.2")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
