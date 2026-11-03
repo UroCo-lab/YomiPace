@@ -9,7 +9,7 @@ SOURCE = ROOT / 'samples/welcome'
 content = json.loads((SOURCE / 'content.json').read_text(encoding='utf-8'))
 assert len(content['slides']) == 10
 script = 'time(' + content['duration'] + ')\n\n' + '\n'.join(
-    f"#{i}\n{slide['script']}\n" for i, slide in enumerate(content['slides'], 1))
+    f"##{i}\n{slide['script']}\n" for i, slide in enumerate(content['slides'], 1))
 (SOURCE / 'script.txt').write_text(script, encoding='utf-8', newline='\n')
 target = ROOT / 'samples/YomiPace-welcome.zip'
 with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as archive:

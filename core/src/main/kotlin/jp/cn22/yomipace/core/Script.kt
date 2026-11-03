@@ -5,6 +5,7 @@ sealed interface ScriptItem {
     val slide: Int
     data class Heading(override val id: String, override val slide: Int) : ScriptItem
     data class Sentence(override val id: String, override val slide: Int, val text: String, val line: Int) : ScriptItem
+    data class Comment(override val id: String, override val slide: Int, val text: String, val line: Int) : ScriptItem
     data class Fixed(override val id: String, override val slide: Int, val label: String, val seconds: Double) : ScriptItem
 }
 
@@ -21,7 +22,8 @@ fun spokenCount(text: String): Int = text.codePoints().filter { !Character.isWhi
 
 object ScriptParser {
     private val time = Regex("time\\((\\d+):([0-5]\\d)\\)")
-    private val heading = Regex("#([1-9]\\d*)")
+    private val heading = Regex("##([1-9]\\d*)")
+    private val legacyHeading = Regex("#([1-9]\\d*)")
     private val fixed = Regex("\\[(.+)\\((\\d+):([0-5]\\d)\\)\\]")
     private fun seconds(m: String, s: String): Double? = m.toLongOrNull()?.takeIf { it <= 1_000_000 }?.let { it * 60.0 + s.toInt() }
 
@@ -33,10 +35,17 @@ object ScriptParser {
         var timeCount = 0
         var declared: Double? = null
         var firstContent = true
-        source.removePrefix("\uFEFF").replace("\r\n", "\n").replace('\r', '\n').split('\n').forEachIndexed { index, raw ->
+        val lines = source.removePrefix("\uFEFF").replace("\r\n", "\n").replace('\r', '\n').split('\n')
+        // Keep saved decks readable. A new-format script never interprets single # as a boundary.
+        val modern = lines.any { it.trim().startsWith("##") }
+        lines.forEachIndexed { index, raw ->
             val line = index + 1
             val text = raw.trim()
             if (text.isEmpty()) return@forEachIndexed
+            if (text.startsWith("**")) {
+                items += ScriptItem.Comment("c$line", slide.coerceAtLeast(1), text.drop(2).trimStart(), line)
+                return@forEachIndexed
+            }
             val isFirst = firstContent
             firstContent = false
             if (Regex("^time\\s*[（(]", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
@@ -48,15 +57,15 @@ object ScriptParser {
                 else declared = value
                 return@forEachIndexed
             }
-            if (text.startsWith("#")) {
-                val number = heading.matchEntire(text)?.groupValues?.get(1)?.toIntOrNull()
-                if (number != expected) { issues += InputIssue(line, "スライド境界は #$expected を単独行に書いてください。"); return@forEachIndexed }
+            if (text.startsWith("##") || !modern && legacyHeading.matches(text)) {
+                val number = (if (modern) heading else legacyHeading).matchEntire(text)?.groupValues?.get(1)?.toIntOrNull()
+                if (number != expected) { issues += InputIssue(line, "スライド境界は ##$expected を単独行に書いてください。"); return@forEachIndexed }
                 slide = number
                 expected++
                 items += ScriptItem.Heading("h$slide", slide)
                 return@forEachIndexed
             }
-            if (slide == 0) { issues += InputIssue(line, "本文・説明区間の前に #1 を単独行に置いてください。"); return@forEachIndexed }
+            if (slide == 0) { issues += InputIssue(line, "本文・説明区間の前に ##1 を単独行に置いてください。"); return@forEachIndexed }
             val block = fixed.matchEntire(text)
             if (block != null) {
                 val label = block.groupValues[1].trim()
@@ -86,7 +95,7 @@ object ScriptParser {
             if (start < text.length && spokenCount(text.substring(start)) > 0) items += ScriptItem.Sentence("s$line-$part", slide, text.substring(start), line)
         }
         if (timeCount > 1 || issues.any { it.timeOnly }) declared = null
-        if (slide == 0) issues += InputIssue(1, "#1 から始まるスライド境界がありません。")
+        if (slide == 0) issues += InputIssue(1, "##1 から始まるスライド境界がありません。")
         return Script(items, declared, issues)
     }
 }

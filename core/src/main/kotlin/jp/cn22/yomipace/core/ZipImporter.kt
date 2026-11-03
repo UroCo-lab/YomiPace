@@ -78,7 +78,7 @@ object ZipImporter {
             val source = try { decoder.decode(ByteBuffer.wrap(scriptFile!!.readBytes())).toString() } catch (_: Exception) { throw IllegalArgumentException("script.txtはUTF-8で保存してください（BOM可）。") }
             val script = ScriptParser.parse(source)
             require(script.fatalIssues.isEmpty()) { script.fatalIssues.joinToString("\n") }
-            require(script.slides == imageFiles.keys.toList()) { "原稿の#番号と画像番号・枚数が一致しません。説明のない画像にも#番号を置いてください。" }
+            require(script.slides == imageFiles.keys.toList()) { "原稿の##番号と画像番号・枚数が一致しません。説明のない画像にも##番号を置いてください。" }
             return ImportedDeck(staging, imageFiles.values.toList(), script, displayName)
         } catch (e: Exception) {
             // staging belongs to this call and contains only fixed flat filenames generated above.

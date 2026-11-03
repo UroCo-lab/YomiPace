@@ -47,6 +47,7 @@ class ScriptReaderView(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val blockRect = RectF()
     private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val commentPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val effectsRenderer by lazy { DopamineRenderer() }
     private var effectEngine: DopamineEngine? = null
     private var effectTime: (() -> Long)? = null
@@ -116,13 +117,20 @@ class ScriptReaderView(context: Context) : View(context) {
         val available = (textRight - textLeft).roundToInt().coerceAtLeast(1)
         var top = markerY
         textPaint.textSize = fontPixels
+        commentPaint.textSize = fontPixels * 0.85f
         rows = items.map { item ->
-            val layout = if (item is ScriptItem.Sentence) StaticLayout.Builder.obtain(item.text, 0, item.text.length, textPaint, available)
-                .setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(false).setLineSpacing(0f, 1.65f).setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY).build() else null
+            val content = when (item) {
+                is ScriptItem.Sentence -> item.text
+                is ScriptItem.Comment -> item.text
+                else -> null
+            }
+            val layout = content?.let { StaticLayout.Builder.obtain(it, 0, it.length, if (item is ScriptItem.Comment) commentPaint else textPaint, available)
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(false).setLineSpacing(0f, 1.65f).setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY).build() }
             val rowHeight = when (item) {
                 is ScriptItem.Heading -> dp(if (item.slide == 1) 32f else 42f)
                 is ScriptItem.Fixed -> dp(88f)
                 is ScriptItem.Sentence -> layout!!.height + dp(9f)
+                is ScriptItem.Comment -> layout!!.height + dp(9f)
             }
             val labelLayout = if (item is ScriptItem.Fixed) {
                 val labelPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = sp(13f) }
@@ -284,6 +292,13 @@ class ScriptReaderView(context: Context) : View(context) {
                 if (y + row.height < 0 || y > height) return@forEach
                 val item = row.item
                 when (item) {
+                    is ScriptItem.Comment -> {
+                        // Notes stay readable at every scheduled time, including in DOPAGAKI mode.
+                        paint.color = if (chaos) Color.rgb(19, 35, 53) else colorTrack
+                        canvas.drawRoundRect(left - dp(3f), y - dp(2f), right + dp(3f), y + row.layout!!.height + dp(3f), dp(3f), dp(3f), paint)
+                        commentPaint.color = if (chaos) Color.rgb(167, 224, 255) else if (colorBackground == Color.WHITE) Color.rgb(38, 86, 120) else Color.rgb(167, 210, 240)
+                        canvas.save(); canvas.translate(left, y); row.layout.draw(canvas); canvas.restore()
+                    }
                     is ScriptItem.Sentence -> {
                         val segment = timeline?.byId?.get(item.id)
                         val textColor = if (segment != null && elapsed >= segment.end && elapsed > 0) muted else ink
@@ -311,10 +326,10 @@ class ScriptReaderView(context: Context) : View(context) {
                         paint.color = accent; paint.textSize = sp(12f); paint.isFakeBoldText = false
                         if (chaos) {
                             paint.color = Color.rgb(5, 2, 15); paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(3f)
-                            canvas.drawText("#${item.slide}", left, y + dp(20f), paint)
+                            canvas.drawText("##${item.slide}", left, y + dp(20f), paint)
                             paint.style = Paint.Style.FILL; paint.color = accent
                         }
-                        canvas.drawText("#${item.slide}", left, y + dp(20f), paint)
+                        canvas.drawText("##${item.slide}", left, y + dp(20f), paint)
                         if (item.slide > 1) {
                             val segment = timeline?.byId?.get("switch${item.slide}")
                             val f = segment?.fraction(elapsed)?.toFloat() ?: 0f

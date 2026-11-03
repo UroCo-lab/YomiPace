@@ -57,7 +57,7 @@ private class ManagementFrame(base: Context, dark: Boolean, title: String) {
         val save = frame.button("保存", vm::saveScriptEdit).apply { tag = "save-script" }
         frame.toolbar.addView(close); frame.toolbar.addView(save)
         frame.root.addView(frame.label(target))
-        frame.root.addView(frame.label("#番号・time・説明区間も編集できます。保存で予定配分を更新し、経過時間は保持します。元ZIPは変更しません。"))
+        frame.root.addView(frame.label("##番号・time・説明区間も編集できます。行頭の**は読まないメモで、文字数・時間配分に含めません。保存で予定配分を更新し、経過時間は保持します。元ZIPは変更しません。"))
         val error = frame.label("", Color.rgb(197, 46, 64)).apply { maxLines = 5; movementMethod = android.text.method.ScrollingMovementMethod() }
         frame.root.addView(error)
         val input = EditText(frame.context).apply {

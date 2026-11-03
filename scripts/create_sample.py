@@ -8,19 +8,20 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = '''time(07:00)
 
-#1
+##1
 本日は、発表の時間配分について説明します。
+** 質問対策メモ：この資料の数値は操作練習用の架空の例です。
 本文をスクロールして、実際に読んでいる場所を赤線に合わせます。
 グレーになった文章は、予定では読み終えているはずの範囲です。
 
-#2
+##2
 こちらは架空の練習結果です。
 [図を説明(00:30)]
 練習の回数を増やすと、時間配分が安定する例を示しています。
 [補足の時間(00:20)]
 この数値は操作を試すための例で、実際の調査結果ではありません。
 
-#3
+##3
 最後にまとめます。
 本文の位置は手動で調整し、予定のペースは固定で進みます。
 ご清聴ありがとうございました。
@@ -75,7 +76,7 @@ def main():
     for module in ('app','core'):
         target=ROOT/module/'src/test/resources/sample.zip'; target.parent.mkdir(parents=True,exist_ok=True)
         target.write_bytes(sample.read_bytes())
-    regression='time(04:00)\n\n'+'\n'.join(f'#{i}\nこれは第{i}枚の架空の練習スライドです。\n' for i in range(1,10))
+    regression='time(04:00)\n\n'+'\n'.join(f'##{i}\nこれは第{i}枚の架空の練習スライドです。\n' for i in range(1,10))
     archive(samples/'regression/nine-slides.zip', [slides[i%3] for i in range(9)], regression)
     print('Created public sample and test fixtures (3 and 9 slides).')
 

@@ -34,6 +34,6 @@ for (const [i, item] of content.slides.entries()) {
   const png = await deck.export({ slide, format: 'png', scale: 1 });
   await fs.writeFile(path.join(out, `${String(i + 1).padStart(3, '0')}.png`), new Uint8Array(await png.arrayBuffer()));
 }
-const script = `time(${content.duration})\n\n` + content.slides.map((s, i) => `#${i + 1}\n${s.script}\n`).join('\n');
+const script = `time(${content.duration})\n\n` + content.slides.map((s, i) => `##${i + 1}\n${s.script}\n`).join('\n');
 await fs.writeFile(path.join(root, 'samples/welcome/script.txt'), script, 'utf8');
 console.log(`Rendered ${content.slides.length} slides to ${out}`);

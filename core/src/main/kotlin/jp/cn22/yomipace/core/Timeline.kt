@@ -25,6 +25,7 @@ data class Timeline(val totalSeconds: Double, val segments: List<Segment>, val c
             script.items.forEach { item ->
                 val start = at()
                 when (item) {
+                    is ScriptItem.Comment -> Unit
                     is ScriptItem.Heading -> if (item.slide > 1) {
                         fixedSoFar += switchSeconds
                         segments += Segment("switch${item.slide}", SegmentKind.SWITCH, start, at(), item.slide)
