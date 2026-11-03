@@ -101,7 +101,7 @@ private data class EditorHolder(val frame: ManagementFrame, val input: EditText,
         val frame = ManagementFrame(context, dark, if (isTrash) "ゴミ箱" else "アーカイブ")
         frame.toolbar.addView(frame.button(if (isTrash) "アーカイブ" else "ゴミ箱") { vm.showLibrary(if (isTrash) DeckLocation.ARCHIVE else DeckLocation.TRASH) })
         frame.toolbar.addView(frame.button("閉じる", vm::closeLibrary))
-        frame.root.addView(frame.label(if (isTrash) "復元するとアーカイブへ戻ります。ここからの削除は完全削除です。" else "読み込んだZIPを端末内に保存しています。鉛筆で原稿を編集できます。"))
+        frame.root.addView(frame.label(if (isTrash) "復元するとアーカイブへ戻ります。ここからの削除は完全削除です。" else "編集前に「複製」でバックアップを残せます。鉛筆で編集し、保存済みの内容をZIP共有できます。"))
         val status = frame.label(""); frame.root.addView(status)
         val list = LinearLayout(frame.context).apply { orientation = LinearLayout.VERTICAL }
         frame.root.addView(ScrollView(frame.context).apply { addView(list) }, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -111,7 +111,7 @@ private data class EditorHolder(val frame: ManagementFrame, val input: EditText,
     val entries = if (location == DeckLocation.TRASH) vm.trash else vm.archives
     val busy = vm.busy
     SideEffect {
-        holder.status.text = if (busy) "処理中…" else if (entries.isEmpty()) "資料はありません。" else "${entries.size}件"
+        holder.status.text = if (busy) "処理中…" else vm.libraryNotice ?: if (entries.isEmpty()) "資料はありません。" else "${entries.size}件"
         if (holder.rendered != entries || holder.busy != busy) {
             holder.rendered = entries; holder.busy = busy; holder.list.removeAllViews()
             entries.forEach { entry ->
@@ -138,6 +138,12 @@ private data class EditorHolder(val frame: ManagementFrame, val input: EditText,
                     })
                 }
                 card.addView(actions); holder.list.addView(card)
+                if (location == DeckLocation.ARCHIVE) {
+                    val transfers = LinearLayout(frame.context).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
+                    transfers.addView(frame.button("複製") { vm.duplicateArchived(entry.id) }.apply { isEnabled = !busy; contentDescription = "複製：${entry.name}" })
+                    transfers.addView(frame.button("ZIP共有") { vm.shareArchived(entry.id) { DeckTransfer.share(context, it) } }.apply { isEnabled = !busy; contentDescription = "ZIP共有：${entry.name}" })
+                    card.addView(transfers)
+                }
                 holder.list.addView(View(frame.context).apply { setBackgroundColor(Color.GRAY) }, LinearLayout.LayoutParams(-1, frame.px(1)))
             }
         }

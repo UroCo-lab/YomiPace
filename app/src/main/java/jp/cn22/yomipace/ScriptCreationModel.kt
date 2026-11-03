@@ -20,7 +20,7 @@ internal data class SelectedSlide(val uri: Uri, val key: String = UUID.randomUUI
 internal enum class CreationSection { IMAGES, HUB, TITLE, TIME, ORDER, SCRIPT }
 
 internal class ScriptCreationModel(private val app: Application, private val scope: CoroutineScope,
-    private val changed: suspend (StoredDeck, StoredDeck?) -> Unit) {
+    private val changed: suspend (StoredDeck, StoredDeck?, List<Int>?) -> Unit) {
     private val prefs = app.getSharedPreferences("yomipace", 0)
     private val store = DeckStore(File(app.filesDir, "decks"))
     var visible by mutableStateOf(false); private set
@@ -46,6 +46,8 @@ internal class ScriptCreationModel(private val app: Application, private val sco
     private var savedOrder = emptyList<Int>()
     private var savedSeconds: Double? = null
     private var timeInputBaseline = Triple(true, "", "00")
+    private var nextSlideKey = 1
+    private val pendingImages = mutableListOf<File>()
     val timeSetupPending get() = section == CreationSection.TIME
     private val contentDirty get() = pages.map { it.text } != savedTexts || imageOrder != savedOrder || presentationSeconds != savedSeconds
     private val timeInputDirty get() = section == CreationSection.TIME && Triple(timeUndecided, timeMinutes, timeSeconds) != timeInputBaseline
@@ -69,6 +71,7 @@ internal class ScriptCreationModel(private val app: Application, private val sco
         original = loaded; format = parsed; name = loaded.entry.name
         pages = parsed.bodies.map { TextFieldValue(it) }; slideImages = loaded.deck.images
         imageOrder = loaded.entry.imageOrder ?: (1..pages.size).toList()
+        nextSlideKey = pages.size + 1
         presentationSeconds = loaded.entry.totalSeconds; page = 0; selected = emptyList()
         markSaved(); resetTimeInputs(); section = CreationSection.HUB; error = null; status = null
     }
@@ -106,6 +109,34 @@ internal class ScriptCreationModel(private val app: Application, private val sco
         slideImages = slideImages.toMutableList().apply { add(index + delta, removeAt(index)) }
         page = imageOrder.indexOf(current); error = null; status = null
     }
+    fun addSlides(uris: List<Uri>) {
+        if (!visible || busy || original == null || uris.isEmpty()) return
+        if (pages.size + uris.size > ZipImporter.MAX_SLIDES) { error = "スライドは合計200枚までです。"; return }
+        busy = true; error = null; status = "追加する画像を変換中…"
+        scope.launch {
+            try {
+                val added = withContext(Dispatchers.IO) {
+                    SlideImageImporter.create(app, File(app.cacheDir, "slide-drafts"), uris, name)
+                }
+                pendingImages.add(added.deck.directory)
+                slideImages = slideImages + added.deck.images
+                imageOrder = imageOrder + added.deck.images.map { nextSlideKey++ }
+                pages = pages + added.deck.images.map { TextFieldValue("") }
+                status = "${uris.size}枚追加しました。原稿を入力し、保存してください。"
+            } catch (e: Exception) { error = e.message ?: "画像を追加できませんでした。"; status = null }
+            finally { busy = false }
+        }
+    }
+    /** The UI requests confirmation before calling this. Keep at least one valid slide. */
+    fun removeSlide(index: Int) {
+        if (busy || original == null || index !in pages.indices || pages.size <= 1) return
+        val key = imageOrder[page]
+        pages = pages.filterIndexed { i, _ -> i != index }
+        slideImages = slideImages.filterIndexed { i, _ -> i != index }
+        imageOrder = imageOrder.filterIndexed { i, _ -> i != index }
+        page = imageOrder.indexOf(key).takeIf { it >= 0 } ?: index.coerceAtMost(pages.lastIndex)
+        error = null; status = null
+    }
     fun selectPage(index: Int) { if (!busy && section == CreationSection.SCRIPT && index in pages.indices) page = index }
     fun edit(value: TextFieldValue) {
         if (busy || section != CreationSection.SCRIPT || page !in pages.indices) return
@@ -129,7 +160,7 @@ internal class ScriptCreationModel(private val app: Application, private val sco
                         scope.launch { status = "画像を変換中… $count/${images.size}" }
                     }
                 }
-                attach(created); changed(created, null)
+                attach(created); changed(created, null, null)
             } catch (e: Exception) { error = e.message ?: "画像を取り込めませんでした。再選択してください。"; status = null }
             finally { busy = false }
         }
@@ -159,6 +190,10 @@ internal class ScriptCreationModel(private val app: Application, private val sco
         if (busy || section == CreationSection.TIME && !applyTimeDraft()) return
         val text = source; val title = name.trim(); val updateSource = contentDirty
         val order = imageOrder.toList(); val seconds = presentationSeconds
+        val images = slideImages.toList()
+        val oldKeys = previous.entry.imageOrder ?: (1..previous.entry.imageCount).toList()
+        val positions = oldKeys.mapIndexed { index, key -> order.indexOf(key).takeIf { it >= 0 } ?: index.coerceAtMost(order.lastIndex) }
+        val structural = order.sorted() != (1..previous.entry.imageCount).toList()
         if (title.isEmpty()) { error = "資料名を入力してください。"; return }
         busy = true; error = null; status = "保存中…"
         scope.launch {
@@ -168,17 +203,27 @@ internal class ScriptCreationModel(private val app: Application, private val sco
                     val parsed = ScriptParser.parse(text)
                     require(parsed.issues.isEmpty()) { parsed.issues.take(20).joinToString("\n") }
                     require(parsed.slides == (1..pages.size).toList()) { "スライド区切りは自動で入ります。入力欄の追加の##番号を取り除いてください。" }
-                    require(order.sorted() == (1..pages.size).toList()) { "スライド順が不正です。" }
+                    require(images.size in 1..ZipImporter.MAX_SLIDES && order.size == images.size && order.distinct().size == images.size) { "スライドが不正です。" }
                     val current = store.read(previous.entry.id)
                     require(current.location == DeckLocation.ARCHIVE && current.modifiedAt == previous.entry.modifiedAt) { "資料が変更されました。閉じて開き直してください。" }
-                    store.write(current.copy(name = title, scriptOverride = if (updateSource) text else current.scriptOverride,
-                        totalSeconds = seconds, imageOrder = order.takeUnless { it == (1..pages.size).toList() },
-                        modifiedAt = maxOf(System.currentTimeMillis(), current.modifiedAt + 1)))
+                    // Build a complete immutable image set before the one metadata commit. Original files stay untouched.
+                    var revision: StoredDeck? = null
+                    var committed = false
+                    try {
+                        if (structural) revision = SlideImageImporter.create(app, File(previous.deck.directory, "revisions"), images.map { Uri.fromFile(it) }, title)
+                        store.write(current.copy(name = title, imageCount = images.size, scriptOverride = if (updateSource) text else current.scriptOverride,
+                            totalSeconds = seconds, imageOrder = if (structural) null else order.takeUnless { it == (1..images.size).toList() },
+                            imageRevision = revision?.entry?.id ?: current.imageRevision,
+                            modifiedAt = maxOf(System.currentTimeMillis(), current.modifiedAt + 1)))
+                        committed = true
+                    } finally { if (!committed) revision?.deck?.directory?.deleteRecursively() }
                     store.load(previous.entry.id)
                 }
                 original = saved; name = saved.entry.name; format = SlideScriptDraft.parse(saved.source, pages.size)
-                slideImages = saved.deck.images; markSaved(); status = "保存しました"
-                changed(saved, previous)
+                slideImages = saved.deck.images; imageOrder = saved.entry.imageOrder ?: (1..pages.size).toList()
+                nextSlideKey = pages.size + 1; markSaved(); status = "保存しました"
+                cleanupPendingImages()
+                changed(saved, previous, positions)
                 if (closeAfter) closeNow()
             } catch (e: Exception) { error = e.message ?: "保存できませんでした。"; status = null }
             finally { busy = false }
@@ -187,9 +232,11 @@ internal class ScriptCreationModel(private val app: Application, private val sco
     fun close() { if (!busy) closeNow() }
     fun pickerFailed() { error = "画像選択画面を開けませんでした。端末のメディア・ファイルアプリを確認してください。" }
     private fun closeNow() {
+        cleanupPendingImages()
         visible = false; original = null; pages = emptyList(); slideImages = emptyList(); imageOrder = emptyList(); selected = emptyList()
         presentationSeconds = null; section = CreationSection.IMAGES; status = null; error = null
     }
+    private fun cleanupPendingImages() { pendingImages.forEach { it.deleteRecursively() }; pendingImages.clear() }
     fun saveSnippets(values: List<String>): Boolean {
         if (values.any { it.isBlank() || it.length > 2000 } || values.size > 50) return false
         if (!prefs.edit().putString("creationSnippets", JSONArray(values).toString()).commit()) return false

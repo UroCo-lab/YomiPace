@@ -7,11 +7,14 @@ import android.net.Uri
 import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
+import androidx.activity.compose.setContent
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModel
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.*
 import org.junit.Rule
@@ -27,14 +30,28 @@ import java.io.File
 import java.time.Duration
 
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [35], qualifiers = "w360dp-h840dp-mdpi")
+@Config(sdk = [35], qualifiers = "w360dp-h840dp-mdpi", shadows = [HostFileProviderPaths::class])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ScriptCreationScreenTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
     private fun waitFor(check: () -> Boolean) = rule.waitUntil(15_000) { shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50)); check() }
     private fun start(): AppViewModel {
-        val vm = ViewModelProvider(rule.activity)[AppViewModel::class.java]
-        waitFor { !vm.busy }
+        ReflectionHelpers.getStaticField<MutableMap<*, *>>(androidx.core.content.FileProvider::class.java, "sCache").clear()
+        val previous = ViewModelProvider(rule.activity)[AppViewModel::class.java]
+        waitFor { !previous.busy }
+        lateinit var vm: AppViewModel
+        rule.runOnUiThread {
+            previous.pause(); rule.activity.viewModelStore.clear()
+            val app = rule.activity.application
+            app.getSharedPreferences("yomipace", 0).edit().clear().putBoolean(WelcomeSample.SETUP_COMPLETE, true).commit()
+            File(app.filesDir, "decks").deleteRecursively()
+            vm = ViewModelProvider(rule.activity, object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T = AppViewModel(app) as T
+            })[AppViewModel::class.java]
+            rule.activity.setContent { MaterialTheme { YomiPaceScreen(vm, false) } }
+        }
+        waitFor { !vm.busy }; assertSame(rule.activity.application, vm.getApplication<Application>())
         rule.runOnIdle { vm.clear(); vm.message = null; vm.creator.saveSnippets(listOf("[任意の文字列(mm:ss)]", "**コメントアウト")) }
         rule.onNodeWithText("⋮").performClick(); rule.onNodeWithText("読み上げ原稿作成").performClick()
         rule.onNodeWithText("画像選択").assertIsDisplayed()
@@ -60,7 +77,7 @@ class ScriptCreationScreenTest {
         rule.waitForIdle()
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300))
         rule.runOnUiThread {
-            val root = ShadowDialog.getLatestDialog().window!!.decorView
+            val root = ShadowDialog.getShownDialogs().last { it.isShowing }.window!!.decorView
             fun settle(view: View) { view.jumpDrawablesToCurrentState(); if (view is ViewGroup) (0 until view.childCount).forEach { settle(view.getChildAt(it)) } }
             settle(root)
             val bitmap = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
@@ -168,7 +185,7 @@ class ScriptCreationScreenTest {
         rule.onNodeWithText("次へ").performClick()
         rule.onNodeWithTag("creation-script").performTextInput("二枚目の本文。")
         rule.onNodeWithTag("creation-back-hub").performClick()
-        listOf("タイトル", "時間指定", "スライド順", "原稿編集").forEach { rule.onNodeWithText(it).assertIsDisplayed() }
+        listOf("タイトル", "時間指定", "スライド編集", "原稿編集").forEach { rule.onNodeWithText(it).assertIsDisplayed() }
         capture("creation-hub-360x840")
         rule.onNodeWithTag("creation-hub-title").performClick()
         rule.onNodeWithTag("creation-name").performTextReplacement("管理ページの資料")
@@ -212,5 +229,47 @@ class ScriptCreationScreenTest {
         rule.onNodeWithText("閉じる").performClick()
         rule.onNodeWithText("保存しない").performClick()
         assertFalse(vm.creator.visible); assertArrayEquals(entry, File(directory, "entry.json").readBytes())
+    }
+    @Test fun slideDeletionRequiresConfirmationAndLastSlideCannotBeRemoved() {
+        val vm = start(); add(vm); generate(vm)
+        rule.onNodeWithTag("creation-back-hub").performClick(); rule.onNodeWithText("スライド編集").performClick()
+        rule.onNodeWithText("スライドを追加").assertIsDisplayed()
+        rule.onNodeWithContentDescription("スライド1を削除").performClick()
+        rule.onNodeWithText("スライド1を削除しますか？").assertIsDisplayed(); assertEquals(2, vm.creator.pages.size)
+        rule.onNodeWithText("キャンセル").performClick(); assertEquals(2, vm.creator.pages.size)
+        rule.onNodeWithContentDescription("スライド1を削除").performClick(); rule.onNodeWithText("削除する").performClick()
+        assertEquals(1, vm.creator.pages.size); rule.onNodeWithContentDescription("スライド1を削除").assertIsNotEnabled()
+        rule.onNodeWithTag("creation-save").performClick(); waitFor { !vm.busy }; assertEquals(1, vm.creator.original!!.entry.imageCount)
+        capture("slide-edit-delete-confirmed-phone")
+        rule.runOnIdle { vm.creator.close() }
+    }
+    @Test fun archiveCopyAndZipShareButtonsWorkOnSmallScreen() {
+        val vm = start(); add(vm); generate(vm)
+        rule.onNodeWithTag("creation-name").assertDoesNotExist()
+        val id = vm.creator.original!!.entry.id; val name = vm.creator.name
+        rule.onNodeWithTag("creation-script").performTextInput("共有する本文。")
+        rule.onNodeWithTag("creation-save").performClick(); waitFor { !vm.busy }
+        rule.onNodeWithText("閉じる").performClick()
+        rule.runOnIdle { vm.showLibrary(DeckLocation.ARCHIVE) }; rule.waitForIdle()
+        fun views(v: View): List<View> = listOf(v) + if (v is ViewGroup) (0 until v.childCount).flatMap { views(v.getChildAt(it)) } else emptyList()
+        val initial = vm.archives.size
+        rule.runOnUiThread {
+            val archive = ShadowDialog.getLatestDialog().window!!.decorView
+            val row = archive.findViewWithTag<View>("archive-entry-$id")
+            views(row).single { it.contentDescription == "複製：$name" }.performClick()
+        }
+        waitFor { !vm.busy && vm.archives.size == initial + 1 }; assertNull(vm.message)
+        assertTrue(vm.archives.any { it.id != id && it.name.endsWith("（コピー）") })
+        capture("archive-copy-share-phone")
+        rule.runOnUiThread {
+            val archive = ShadowDialog.getLatestDialog().window!!.decorView
+            val row = archive.findViewWithTag<View>("archive-entry-$id")
+            views(row).single { it.contentDescription == "ZIP共有：$name" }.performClick()
+        }
+        waitFor { !vm.busy }; assertNull(vm.message)
+        val chooser = shadowOf(rule.activity).nextStartedActivity
+        assertEquals(android.content.Intent.ACTION_CHOOSER, chooser.action)
+        val send = chooser.getParcelableExtra<android.content.Intent>(android.content.Intent.EXTRA_INTENT)!!
+        assertEquals("application/zip", send.type); assertNotNull(send.clipData)
     }
 }

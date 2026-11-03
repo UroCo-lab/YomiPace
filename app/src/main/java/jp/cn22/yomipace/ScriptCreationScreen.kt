@@ -40,11 +40,14 @@ import kotlinx.coroutines.withContext
 @Composable internal fun ScriptCreationScreen(model: ScriptCreationModel) {
     var confirmClose by rememberSaveable { mutableStateOf(false) }
     var editSnippets by rememberSaveable { mutableStateOf(false) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(), model::add)
+    var deleteSlideKey by rememberSaveable { mutableStateOf<Int?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        if (model.original == null) model.add(uris) else model.addSlides(uris)
+    }
     fun choose() {
         try {
             picker.launch(PickVisualMediaRequest.Builder().setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                .setMaxItems((200 - model.selected.size).coerceAtLeast(2)).setOrderedSelection(true).build())
+                .setMaxItems((200 - if (model.original == null) model.selected.size else model.pages.size).coerceAtLeast(2)).setOrderedSelection(true).build())
         } catch (_: android.content.ActivityNotFoundException) { model.pickerFailed() }
     }
     fun close() { if (!model.busy) { if (model.dirty) confirmClose = true else model.close() } }
@@ -82,7 +85,7 @@ import kotlinx.coroutines.withContext
                             Text("編集する項目を選んでください。変更は「保存」で確定します。", style = MaterialTheme.typography.bodyMedium)
                             OutlinedButton(onClick = { model.show(CreationSection.TITLE) }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag("creation-hub-title")) { Text("タイトル") }
                             OutlinedButton(onClick = { model.show(CreationSection.TIME) }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag("creation-hub-time")) { Text("時間指定") }
-                            OutlinedButton(onClick = { model.show(CreationSection.ORDER) }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag("creation-hub-order")) { Text("スライド順") }
+                            OutlinedButton(onClick = { model.show(CreationSection.ORDER) }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag("creation-hub-order")) { Text("スライド編集") }
                             Button(onClick = { model.show(CreationSection.SCRIPT) }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag("creation-hub-script")) { Text("原稿編集") }
                         }
                     } else if (model.section == CreationSection.TITLE) {
@@ -92,8 +95,12 @@ import kotlinx.coroutines.withContext
                             Text("変更は「保存」で確定します。", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 16.dp))
                         }
                     } else if (model.section == CreationSection.ORDER) {
-                        Text("スライド順", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(vertical = 12.dp))
-                        Text("画像と対応する原稿を一緒に移動し、番号を振り直します。保存するまで変更は確定しません。", style = MaterialTheme.typography.bodySmall)
+                        Text("スライド編集", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(vertical = 12.dp))
+                        Text("追加・削除・並び替えができます。画像と原稿は一緒に移動し、番号を振り直します。変更は保存で確定します。", style = MaterialTheme.typography.bodySmall)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedButton(onClick = ::choose, enabled = !model.busy && model.pages.size < 200, modifier = Modifier.testTag("creation-add-slides")) { Text("スライドを追加") }
+                            Text("${model.pages.size}枚 / 最大200枚", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 12.dp))
+                        }
                         LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("creation-slide-order")) {
                             itemsIndexed(model.slideImages, key = { index, _ -> model.imageOrder[index] }) { index, file ->
                                 Row(Modifier.fillMaxWidth().padding(vertical = 12.dp).testTag("ordered-slide-$index"), verticalAlignment = Alignment.CenterVertically) {
@@ -102,8 +109,14 @@ import kotlinx.coroutines.withContext
                                         Text("スライド ${index + 1}", style = MaterialTheme.typography.labelLarge)
                                         Text(model.pages[index].text.lineSequence().firstOrNull { it.isNotBlank() } ?: "原稿は未入力", style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     }
-                                    TextButton(onClick = { model.moveSlide(index, -1) }, enabled = !model.busy && index > 0, modifier = Modifier.semantics { contentDescription = "スライド${index + 1}を前へ" }) { Text("↑") }
-                                    TextButton(onClick = { model.moveSlide(index, 1) }, enabled = !model.busy && index < model.pages.lastIndex, modifier = Modifier.semantics { contentDescription = "スライド${index + 1}を後へ" }) { Text("↓") }
+                                    Column {
+                                        Row {
+                                            TextButton(onClick = { model.moveSlide(index, -1) }, enabled = !model.busy && index > 0, modifier = Modifier.semantics { contentDescription = "スライド${index + 1}を前へ" }) { Text("↑") }
+                                            TextButton(onClick = { model.moveSlide(index, 1) }, enabled = !model.busy && index < model.pages.lastIndex, modifier = Modifier.semantics { contentDescription = "スライド${index + 1}を後へ" }) { Text("↓") }
+                                        }
+                                        TextButton(onClick = { deleteSlideKey = model.imageOrder[index] }, enabled = !model.busy && model.pages.size > 1,
+                                            modifier = Modifier.align(Alignment.End).semantics { contentDescription = "スライド${index + 1}を削除" }) { Text("削除") }
+                                    }
                                 }
                                 HorizontalDivider()
                             }
@@ -176,7 +189,13 @@ import kotlinx.coroutines.withContext
                     TextButton(onClick = { confirmClose = false }) { Text("キャンセル") }
                 }
             })
-        if (editSnippets) SnippetEditor(model) { editSnippets = false }
+    val deletionIndex = deleteSlideKey?.let { model.imageOrder.indexOf(it) } ?: -1
+    if (deletionIndex >= 0) AlertDialog(onDismissRequest = { deleteSlideKey = null },
+        title = { Text("スライド${deletionIndex + 1}を削除しますか？") },
+        text = { Text("このスライドと対応する原稿を編集内容から取り除きます。変更は「保存」で確定します。元の画像やZIPは変更しません。") },
+        confirmButton = { TextButton(onClick = { model.removeSlide(deletionIndex); deleteSlideKey = null }, enabled = !model.busy) { Text("削除する") } },
+        dismissButton = { TextButton(onClick = { deleteSlideKey = null }) { Text("キャンセル") } })
+    if (editSnippets) SnippetEditor(model) { editSnippets = false }
     }
 }
 

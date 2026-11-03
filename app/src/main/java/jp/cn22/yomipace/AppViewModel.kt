@@ -86,18 +86,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var archives by mutableStateOf<List<DeckSummary>>(emptyList()); private set
     var trash by mutableStateOf<List<DeckSummary>>(emptyList()); private set
     var libraryBusy by mutableStateOf(false); private set
+    var libraryNotice by mutableStateOf<String?>(null); private set
     var editorBusy by mutableStateOf(false); private set
     var editorDraft by mutableStateOf<String?>(null); private set
     var editorError by mutableStateOf<String?>(null); private set
     private var editorOriginal: StoredDeck? = null
     val editorName get() = editorOriginal?.entry?.name.orEmpty()
     val editorDirty get() = editorDraft != null && editorDraft != editorOriginal?.source
-    internal val creator = ScriptCreationModel(application, viewModelScope) { saved, previous ->
+    internal val creator = ScriptCreationModel(application, viewModelScope) { saved, previous, positions ->
         if (previous != null && deck?.directory?.name == saved.entry.id) {
-            val oldOrder = previous.entry.imageOrder ?: (1..previous.entry.imageCount).toList()
-            val newOrder = saved.entry.imageOrder ?: (1..saved.entry.imageCount).toList()
-            val physicalSlide = oldOrder[(currentSlide - 1).coerceIn(oldOrder.indices)]
-            val newSlide = newOrder.indexOf(physicalSlide) + 1
+            val oldIndex = (currentSlide - 1).coerceIn(0, previous.entry.imageCount - 1)
+            val newSlide = (positions?.get(oldIndex) ?: oldIndex.coerceAtMost(saved.entry.imageCount - 1)) + 1
             anchor = ScriptEditing.relocate(previous.deck.script, saved.deck.script, anchor, newSlide)
             currentSlide = newSlide; deck = saved.deck; totalSeconds = saved.entry.totalSeconds; rebuild(); persist()
         }
@@ -289,7 +288,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun showLibrary(location: DeckLocation) {
         if (running) { message = "停止してからアーカイブを開いてください。"; return }
         if (busy) return
-        libraryLocation = location
+        libraryLocation = location; libraryNotice = null
         viewModelScope.launch { refreshLibrary() }
     }
     fun closeLibrary() { if (!busy) libraryLocation = null }
@@ -306,9 +305,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun restoreFromTrash(id: String) = libraryAction { withContext(Dispatchers.IO) { store.move(id, DeckLocation.ARCHIVE) } }
     fun deletePermanently(id: String) = libraryAction { withContext(Dispatchers.IO) { store.deletePermanently(id) } }
+    fun duplicateArchived(id: String) = libraryAction {
+        val copy = withContext(Dispatchers.IO) { DeckTransfer.duplicate(getApplication(), store, store.load(id)) }
+        libraryNotice = "「${copy.entry.name}」を作成しました。複製の鉛筆から編集できます。"
+    }
+    fun shareArchived(id: String, ready: (File) -> Unit) = libraryAction {
+        val zip = withContext(Dispatchers.IO) { DeckTransfer.export(getApplication(), store.load(id)) }
+        ready(zip)
+    }
     private fun libraryAction(action: suspend () -> Unit) {
         if (running) { message = "停止してから資料を操作してください。"; return }
-        if (busy || editorDraft != null) return
+        if (busy || editorDraft != null || creator.visible) return
+        libraryNotice = null
         libraryBusy = true
         viewModelScope.launch {
             try { action(); refreshLibrary() } catch (e: Exception) { message = e.message ?: "資料を操作できませんでした。" }

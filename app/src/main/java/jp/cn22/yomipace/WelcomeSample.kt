@@ -10,7 +10,7 @@ internal object WelcomeSample {
     const val SETUP_COMPLETE = "welcomeSampleSetupComplete"
     private const val INSTALL_PENDING = "welcomeSampleInstallPending"
     const val ID = "deck-00000000-0000-4000-8000-000000000001"
-    const val NAME = "YomiPace はじめてガイド（16枚）"
+    const val NAME = "YomiPace はじめてガイド（19枚）"
     const val ASSET = "welcome/YomiPace-welcome.zip"
 
     /** Record a fresh installation before onStop can persist default display settings. */

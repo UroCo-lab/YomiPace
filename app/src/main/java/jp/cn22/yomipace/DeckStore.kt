@@ -12,7 +12,7 @@ import java.nio.file.StandardCopyOption
 enum class DeckLocation { ARCHIVE, TRASH }
 data class DeckEntry(val id: String, val name: String, val imageCount: Int, val createdAt: Long, val modifiedAt: Long,
     val location: DeckLocation = DeckLocation.ARCHIVE, val trashedAt: Long? = null, val totalSeconds: Double? = null,
-    val scriptOverride: String? = null, val imageOrder: List<Int>? = null)
+    val scriptOverride: String? = null, val imageOrder: List<Int>? = null, val imageRevision: String? = null)
 data class StoredDeck(val entry: DeckEntry, val deck: ImportedDeck, val source: String)
 data class DeckSummary(val id: String, val name: String, val imageCount: Int, val modifiedAt: Long, val edited: Boolean)
 
@@ -28,13 +28,15 @@ class DeckStore(private val root: File) {
         return DeckEntry(id, json.getString("name"), json.getInt("imageCount"), json.getLong("createdAt"), json.getLong("modifiedAt"),
             DeckLocation.valueOf(json.getString("location")), if (json.isNull("trashedAt")) null else json.getLong("trashedAt"),
             if (json.isNull("totalSeconds")) null else json.getDouble("totalSeconds"), if (json.isNull("scriptOverride")) null else json.getString("scriptOverride"),
-            json.optJSONArray("imageOrder")?.let { order -> List(order.length()) { order.getInt(it) } })
+            json.optJSONArray("imageOrder")?.let { order -> List(order.length()) { order.getInt(it) } },
+            if (json.isNull("imageRevision")) null else json.getString("imageRevision"))
     }
     @Synchronized fun write(entry: DeckEntry) {
         val json = JSONObject().put("name", entry.name).put("imageCount", entry.imageCount).put("createdAt", entry.createdAt)
             .put("modifiedAt", entry.modifiedAt).put("location", entry.location.name).put("trashedAt", entry.trashedAt ?: JSONObject.NULL)
             .put("totalSeconds", entry.totalSeconds ?: JSONObject.NULL).put("scriptOverride", entry.scriptOverride ?: JSONObject.NULL)
             .put("imageOrder", entry.imageOrder?.let { JSONArray(it) } ?: JSONObject.NULL)
+            .put("imageRevision", entry.imageRevision ?: JSONObject.NULL)
         val target = File(directory(entry.id), "entry.json")
         val pending = File(directory(entry.id), "entry.json.pending")
         try {
@@ -51,12 +53,17 @@ class DeckStore(private val root: File) {
         write(DeckEntry(id, name, count, now, now, totalSeconds = total))
     }
     private fun images(dir: File) = dir.listFiles().orEmpty().filter { Regex("\\d{3}\\.(png|jpg|jpeg)").matches(it.name) }.sortedBy { it.name }
+    fun revisionDirectory(id: String, revision: String): File {
+        require(Regex("deck-[a-f0-9-]+").matches(revision)) { "保存資料の画像セットが不正です。" }
+        val parent = File(directory(id), "revisions")
+        return File(parent, revision).also { require(it.canonicalFile.parentFile == parent.canonicalFile) }
+    }
     @Synchronized fun load(id: String): StoredDeck {
         val entry = read(id)
         val dir = directory(id)
         val source = entry.scriptOverride ?: File(dir, "script.txt").readText(Charsets.UTF_8)
         val script = ScriptParser.parse(source)
-        val images = images(dir)
+        val images = images(entry.imageRevision?.let { revisionDirectory(id, it) } ?: dir)
         require(images.map { it.name.substringBefore('.').toInt() } == (1..images.size).toList()) {
             "保存資料の画像番号が001から連続していません。元のZIPから読み込み直してください。"
         }
@@ -69,7 +76,7 @@ class DeckStore(private val root: File) {
         .filter { it.isDirectory && Regex("deck-[a-f0-9-]+").matches(it.name) }
         .mapNotNull { dir -> runCatching { read(dir.name) }.getOrNull() }
         .filter { it.location == location }.sortedByDescending { it.modifiedAt }
-        .map { DeckSummary(it.id, it.name, it.imageCount, it.modifiedAt, it.scriptOverride != null || it.imageOrder != null) }
+        .map { DeckSummary(it.id, it.name, it.imageCount, it.modifiedAt, it.scriptOverride != null || it.imageOrder != null || it.imageRevision != null) }
     @Synchronized fun move(id: String, location: DeckLocation) {
         val now = System.currentTimeMillis()
         write(read(id).copy(location = location, modifiedAt = now, trashedAt = if (location == DeckLocation.TRASH) now else null))
