@@ -1,4 +1,4 @@
-/** Render the app's 10-slide welcome deck with @oai/artifact-tool.
+/** Render the app's welcome deck with @oai/artifact-tool.
  * Usage: node scripts/create_welcome.mjs [preview-directory]
  * Requires @oai/artifact-tool and an installed Japanese font (Yu Gothic).
  * The app build uses committed PNG assets and does not require Node.js.
@@ -21,12 +21,12 @@ function text(slide, value, x, y, width, height, size, color, bold = false) {
 }
 for (const [i, item] of content.slides.entries()) {
   const slide = deck.slides.add();
-  const dark = i === 0 || i === 9;
+  const dark = i === 0 || i === content.slides.length - 1;
   slide.background.fill = dark ? '#142D4B' : '#F7F9FC';
   const ink = dark ? '#FFFFFF' : '#142D4B';
   const secondary = dark ? '#C1DAF0' : '#475D72';
-  text(slide, `${String(i + 1).padStart(2, '0')} / 10`, 72, 42, 180, 44, 25, secondary);
-  text(slide, item.title, 72, 125, 1140, 95, i === 9 ? 47 : 60, ink, true);
+  text(slide, `${String(i + 1).padStart(2, '0')} / ${content.slides.length}`, 72, 42, 180, 44, 25, secondary);
+  text(slide, item.title, 72, 125, 1140, 95, i === content.slides.length - 1 ? 47 : 60, ink, true);
   for (const [j, line] of item.lines.entries()) {
     text(slide, line, 72, 290 + j * 92, 1140, 75, 38, j === 0 ? ink : secondary, j === 0);
   }

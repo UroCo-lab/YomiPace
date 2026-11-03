@@ -33,13 +33,13 @@ class WelcomeSampleTest {
     }
     private fun model() = AppViewModel(app).also { waitFor { !it.busy } }
 
-    @Test fun firstLaunchOpensTenValidSlidesWithScriptAndPausedFiveMinuteTimeline() {
+    @Test fun firstLaunchOpensSixteenValidSlidesWithEditingGuideAndPausedEightMinuteTimeline() {
         val vm = model()
         assertEquals(WelcomeSample.NAME, vm.deck!!.name)
-        assertEquals(10, vm.deck!!.images.size)
-        assertEquals((1..10).toList(), vm.deck!!.script.slides)
+        assertEquals(16, vm.deck!!.images.size)
+        assertEquals((1..16).toList(), vm.deck!!.script.slides)
         assertTrue(vm.deck!!.script.issues.isEmpty())
-        assertEquals(300.0, vm.totalSeconds!!, 0.0)
+        assertEquals(480.0, vm.totalSeconds!!, 0.0)
         assertNotNull(vm.timeline); assertNull(vm.startProblem)
         assertFalse(vm.running); assertEquals(1, vm.currentSlide); assertEquals(0.0, vm.elapsed, 0.0)
         assertEquals(1, vm.archives.size)
@@ -48,18 +48,21 @@ class WelcomeSampleTest {
             assertNotNull(image.name, bitmap); assertEquals(1280, bitmap.width); assertEquals(720, bitmap.height); bitmap.recycle()
         }
         val source = File(vm.deck!!.directory, "script.txt").readText()
-        assertTrue(source.substringAfter("#10\n").contains("完全に削除"))
-        assertTrue(source.substringAfter("#10\n").contains("アーカイブ"))
+        assertTrue(source.substringAfter("##16\n").contains("完全に削除"))
+        assertTrue(source.substringAfter("##16\n").contains("アーカイブ"))
+        val editing = source.substringAfter("##11\n").substringBefore("##16\n")
+        listOf("タイトル", "時間指定", "スライド順", "原稿編集", "未定", "カーソル", "保存する", "保存しない", "キャンセル").forEach { assertTrue(it, editing.contains(it)) }
+        assertTrue(source.substringAfter("##12\n").substringBefore("##13\n").contains("読まないメモ、固定時間"))
         assertArrayEquals(app.assets.open(WelcomeSample.ASSET).use { it.readBytes() }, File(vm.deck!!.directory, "source.zip").readBytes())
     }
     @Test fun relaunchRestoresEditedSamplePositionAndDoesNotDuplicateIt() {
         val vm = model()
         vm.beginScriptEdit(); waitFor { !vm.busy }
         vm.updateEditorDraft(vm.editorDraft!!.replace("ようこそ", "いらっしゃいませ")); vm.saveScriptEdit(); waitFor { !vm.busy }
-        vm.seekTo(75.0); vm.updateAnchor(ReadingAnchor("h10"), 10); vm.setFont(24); vm.persist()
+        vm.seekTo(75.0); vm.updateAnchor(ReadingAnchor("h16"), 16); vm.setFont(24); vm.persist()
         val restored = model()
         assertEquals(1, restored.archives.size); assertEquals(24, restored.fontSize)
-        assertEquals(10, restored.currentSlide); assertEquals(75.0, restored.elapsed, .001)
+        assertEquals(16, restored.currentSlide); assertEquals(75.0, restored.elapsed, .001)
         assertFalse(restored.running)
         assertTrue(File(restored.deck!!.directory, "entry.json").readText().contains("いらっしゃいませ"))
     }
@@ -73,7 +76,7 @@ class WelcomeSampleTest {
         var restored = model()
         assertNull(restored.deck); assertTrue(restored.archives.isEmpty()); assertEquals(1, restored.trash.size)
         restored.restoreFromTrash(WelcomeSample.ID); waitFor { !restored.busy }
-        restored.openArchived(WelcomeSample.ID); waitFor { !restored.busy }; assertEquals(10, restored.deck!!.images.size)
+        restored.openArchived(WelcomeSample.ID); waitFor { !restored.busy }; assertEquals(16, restored.deck!!.images.size)
         restored.moveToTrash(WelcomeSample.ID); waitFor { !restored.busy }
         restored.deletePermanently(WelcomeSample.ID); waitFor { !restored.busy }
         restored = model()
@@ -114,7 +117,7 @@ class WelcomeSampleTest {
         assertFalse(prefs.contains(WelcomeSample.SETUP_COMPLETE)); assertFalse(File(root, WelcomeSample.ID).exists())
         // MainActivity.onStop can save ordinary display settings after a failed first launch.
         prefs.edit().putInt("font", 29).putLong("elapsed", 0).commit()
-        assertEquals(10, model().deck!!.images.size)
+        assertEquals(16, model().deck!!.images.size)
     }
     @Test fun interruptedInstallReusesSameArchiveEntry() {
         WelcomeSample.installIfNew(app)
@@ -127,7 +130,7 @@ class WelcomeSampleTest {
         // Simulate onStop between ViewModel construction and its IO coroutine starting.
         prefs.edit().putInt("font", 24).putLong("elapsed", 0).putString("anchor", "h1").commit()
         val vm = model()
-        assertEquals(10, vm.deck!!.images.size); assertEquals(24, vm.fontSize); assertEquals(1, vm.archives.size)
+        assertEquals(16, vm.deck!!.images.size); assertEquals(24, vm.fontSize); assertEquals(1, vm.archives.size)
     }
     @Test fun manualImportAfterDeletingSampleWorksNormally() {
         val vm = model(); vm.moveToTrash(WelcomeSample.ID); waitFor { !vm.busy }
@@ -135,7 +138,7 @@ class WelcomeSampleTest {
         val file = File(app.cacheDir, "welcome.zip")
         app.assets.open(WelcomeSample.ASSET).use { input -> file.outputStream().use { input.copyTo(it) } }
         vm.importZip(Uri.fromFile(file)); waitFor { !vm.busy }
-        assertEquals(10, vm.deck!!.images.size); assertEquals(1, vm.archives.size)
+        assertEquals(16, vm.deck!!.images.size); assertEquals(1, vm.archives.size)
         assertNotEquals(WelcomeSample.ID, vm.deck!!.directory.name)
     }
 }

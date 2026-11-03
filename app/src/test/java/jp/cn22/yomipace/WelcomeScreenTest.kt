@@ -100,7 +100,7 @@ class WelcomeScreenTest : WelcomeScreenFixture() {
         rule.onNodeWithText("開始").assertIsEnabled()
         rule.onNodeWithTag("stacked-layout").assertExists()
         assertFalse(vm.running)
-        rule.runOnIdle { vm.updateAnchor(ReadingAnchor("h10"), 10) }
+        rule.runOnIdle { vm.updateAnchor(ReadingAnchor("h16"), 16) }
         capture("welcome-last-slide-phone")
         menu("アーカイブ")
         val archive = ShadowDialog.getLatestDialog()
@@ -132,8 +132,8 @@ class WelcomeFoldScreenTest : WelcomeScreenFixture() {
         capture("welcome-first-launch-fold")
         rule.onNodeWithTag("two-column-layout").assertExists()
         rule.onNodeWithText("開始").assertIsEnabled()
-        rule.runOnIdle { vm.updateAnchor(ReadingAnchor("h10"), 10); vm.swap() }
+        rule.runOnIdle { vm.updateAnchor(ReadingAnchor("h16"), 16); vm.swap() }
         capture("welcome-last-slide-fold-swapped")
-        assertEquals(10, vm.currentSlide); assertEquals(300.0, vm.totalSeconds!!, 0.0)
+        assertEquals(16, vm.currentSlide); assertEquals(480.0, vm.totalSeconds!!, 0.0)
     }
 }
