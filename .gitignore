@@ -5,6 +5,8 @@
 .idea/
 **/build/
 local.properties
+customization.properties
+LOCAL_CHANGES.md
 *.iml
 *.keystore
 *.jks

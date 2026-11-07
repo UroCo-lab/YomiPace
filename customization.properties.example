@@ -1,0 +1,4 @@
+# Copy to customization.properties (UTF-8). Keep this ID stable for later updates.
+# No source-package rename is needed. Official and personal apps have separate data.
+yomipace.applicationId=jp.cn22.yomipace.personal
+yomipace.appName=YomiPace Personal

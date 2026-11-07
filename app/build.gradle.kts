@@ -1,14 +1,29 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     kotlin("android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+// Optional, ignored local identity for a personal build. The source namespace stays stable.
+val personalConfig = Properties().apply {
+    rootProject.file("customization.properties").takeIf { it.isFile }?.reader(Charsets.UTF_8)?.use { load(it) }
+}
+val personalApplicationId = providers.gradleProperty("yomipace.applicationId").orNull
+    ?: personalConfig.getProperty("yomipace.applicationId") ?: "jp.cn22.yomipace"
+val personalAppName = providers.gradleProperty("yomipace.appName").orNull
+    ?: personalConfig.getProperty("yomipace.appName") ?: "YomiPace"
+require(personalApplicationId.matches(Regex("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+"))) {
+    "yomipace.applicationId must be a dotted Android application ID (for example jp.cn22.yomipace.personal)."
+}
+require(personalAppName.isNotBlank()) { "yomipace.appName must not be blank." }
 android {
     namespace = "jp.cn22.yomipace"
     compileSdk = 36
     buildToolsVersion = "36.0.0"
     defaultConfig {
-        applicationId = "jp.cn22.yomipace"
+        applicationId = personalApplicationId
+        manifestPlaceholders["yomipaceAppLabel"] = personalAppName
         minSdk = 26
         targetSdk = 36
         versionCode = 27
