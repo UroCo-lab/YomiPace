@@ -6,6 +6,8 @@
 
 リポジトリ直下の`customization.properties.example`を`customization.properties`へコピーします。UTF-8で編集してください。このファイルはGit管理から除外しています。
 
+この設定は導入支援を追加したmain以降で利用できます。以前のタグ／ソースZIPでは、`app/build.gradle.kts`の`applicationId`とManifestの`android:label`を直接変更します。古い版へ設定ファイルだけ追加しても反映されません。
+
 ```properties
 yomipace.applicationId=jp.cn22.yomipace.personal
 yomipace.appName=自分用YomiPace

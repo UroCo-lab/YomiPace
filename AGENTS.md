@@ -13,8 +13,8 @@
 - OS、作業先、Java／SDK、接続端末と既存アプリを調べます。既に確認できる情報は調べて進め、判断に必要な不足情報だけ利用者へ尋ねます。
 - URLからはREADMEと配布元を確認して取得。改編希望ならソースを残します。ソースZIPは新しいフォルダーへ展開し、既存作業を上書きしません。`.git`がないZIPでもビルド可能です。GitHubへ送る場合は公開先と履歴の扱いを先に整理します。
 - APKは導入用です。改編には対応するタグ、または利用者が選んだmainのソースを別途取得します。画像と`script.txt`が入った資料ZIPは、アプリの「ZIPを開く」で取り込みます。
-- Windowsのソース導入は `scripts/setup.ps1 -CheckOnly`、続いて `scripts/setup.ps1`。JDK／SDKの導入が必要なら公式配布元を使い、SDKのライセンスは利用者の同意に従って扱います。
-- 個人版は `customization.properties.example` を `customization.properties` へコピーし、別アプリIDを固定して使います。後続の改編でも同じIDと署名鍵を使います。Kotlinのpackage／namespaceの一括置換は不要です。
+- Windowsのソース導入は `scripts/setup.ps1 -CheckOnly`、続いて `scripts/setup.ps1`。古いタグのソースにスクリプトがなければ、その版のREADMEにあるGradle手順を使います。JDK／SDKの導入が必要なら公式配布元を使い、SDKのライセンスは利用者の同意に従って扱います。
+- 個人版は `customization.properties.example` を `customization.properties` へコピーし、別アプリIDを固定して使います。この設定に未対応の古いソースでは、GradleのapplicationIdとManifestの表示名を直接変更します。後続の改編でも同じIDと署名鍵を使います。Kotlinのpackage／namespaceの一括置換は不要です。
 - ADB導入前に `adb devices -l` で対象を特定します。複数台で対象が不明なときだけ確認し、常に `-s <serial>` を指定します。`setup.ps1 -Install -Serial <serial>` でも導入できます。
 - 署名違いを理由に既存アプリを自動アンインストールしません。既存資料をZIP共有で控え、個人版を別IDで導入します。
 

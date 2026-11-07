@@ -37,7 +37,7 @@ APKを指定する場合：
 | `.apk` | APKの出所と対応Androidを確認して導入。ソースは別途取得 |
 | 連番画像と`script.txt`を含むZIP | 発表資料。導入済みアプリの「ZIPを開く」で取り込み |
 
-古いタグやZIPにこの案内がない場合は、[mainの作業指示](https://github.com/UroCo-lab/YomiPace/blob/main/AGENTS.md)も参照し、ソースの版を混同しないでください。APKから元のKotlinソースへ戻す手順は用いません。
+古いタグやZIPにこの案内がない場合は、[mainの作業指示](https://github.com/UroCo-lab/YomiPace/blob/main/AGENTS.md)も参照し、ソースの版を混同しないでください。`setup.ps1`や個人版設定は、この導入支援を追加したmain以降で利用できます。以前のソースは同梱READMEのGradle手順でビルドし、個人版にする場合は`app/build.gradle.kts`の`applicationId`と`app/src/main/AndroidManifest.xml`の表示名を直接変更します。namespaceは保持します。新しいmainを使う場合は、元の版から変わることを利用者へ説明してください。APKから元のKotlinソースへ戻す手順は用いません。
 
 ## ソースから導入する
 
